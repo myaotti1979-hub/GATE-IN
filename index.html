@@ -28,6 +28,7 @@
 
 <nav class="tabs" id="tabs" hidden>
   <button data-tab="today" class="on">開催日</button>
+  <button data-tab="pred">予想</button>
   <button data-tab="pl">収支</button>
   <button data-tab="review">反省会</button>
   <button data-tab="setting">自動投票</button>
@@ -37,7 +38,14 @@
   <section data-view="today">
     <div class="row"><select id="day"></select><button id="reload" class="btn ghost">更新</button></div>
     <div id="dayTotal" class="cards"></div>
+    <div id="shobu"></div>
+    <h3 id="racesHead">自動投票で買った馬券</h3>
     <div id="races"></div>
+  </section>
+  <section data-view="pred" hidden>
+    <div class="row"><select id="pdDay"></select></div>
+    <div id="pdTop"></div>
+    <div id="pred"></div>
   </section>
   <section data-view="pl" hidden>
     <div id="plTotal" class="cards"></div>

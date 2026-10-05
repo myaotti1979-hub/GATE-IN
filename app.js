@@ -8,7 +8,7 @@ const sgn = v => (v > 0 ? '+' : '') + yen(v);
 const cls = v => v > 0 ? 'plus' : v < 0 ? 'minus' : '';
 const ymd = d => `${d.slice(0, 4)}/${d.slice(4, 6)}/${d.slice(6, 8)}`;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const PK = { value: '狙い目 単勝', tan1: '◎の単勝', umaren: '馬連 流し', wide1: 'ワイド 1点', wideana: 'ワイド 穴流し', sanfuku: '3連複 軸1頭＋5頭', sanfuku6: '3連複 軸1頭＋6頭', box5: '3連複 5頭BOX', box6: '3連複 6頭BOX', jiku2: '3連複 2頭軸流し', santan: '3連単 フォーメーション', _bought: '実際に買った分' };
+const PK = { value: '狙い目 単勝', tan1: '◎の単勝', umaren: '馬連 流し', wide1: 'ワイド 1点', wideana: 'ワイド 穴流し', sanfuku: '3連複 軸1頭＋5頭', sanfuku6: '3連複 軸1頭＋6頭', box5: '3連複 5頭BOX', box6: '3連複 6頭BOX', jiku2: '3連複 2頭軸流し', santan: '3連単 フォーメーション', _bought: '実際に買った分', _shobu: '勝負レース（記録だけ）' };
 
 // ---------- ログイン（リダイレクト方式：ホーム画面に追加したアプリでも動く。トークンは1時間で切れ、切れたら自動で取り直す） ----------
 let token = null, tokenExp = 0, started = false;
@@ -104,14 +104,16 @@ async function loadAll() {
   renderHome(hb);
   const abId = await folder('autobet', viewId);
   const logId = abId ? await folder('log', abId) : null;
-  const [logFiles, resFiles, statusFile] = await Promise.all([list(logId), list(await folder('results', viewId)), list(abId)]);
+  const [logFiles, resFiles, statusFile, sbFiles] = await Promise.all([list(logId), list(await folder('results', viewId)), list(abId), list(await folder('shobu', viewId))]);
+  S.sbFiles = Object.fromEntries(sbFiles.map(f => [f.name.slice(0, 8), f.id]));
   S.logs = logFiles.filter(f => /^\d{8}\.json$/.test(f.name)).sort((a, b) => b.name.localeCompare(a.name));
   S.resFiles = Object.fromEntries(resFiles.map(f => [f.name.slice(0, 8), f.id]));
   S.status = await readJson((statusFile.find(f => f.name === 'status.json') || {}).id);
-  const days = S.logs.map(f => f.name.slice(0, 8));
+  const days = [...new Set([...S.logs.map(f => f.name.slice(0, 8)), ...Object.keys(S.sbFiles)])].sort().reverse();
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }).replace(/-/g, '');
   $('#day').innerHTML = days.map((d, i) => `<option value="${d}">${ymd(d)}${d === today ? '（今日）' : i === 0 ? '（最新の開催日）' : ''}</option>`).join('') || '<option>記録なし</option>';
   await loadReview(viewId);
+  await loadPred(viewId);
   if (days.length) await showDay(days[0]);
   renderSetting(); loadPL();
   $('#foot').textContent = '読み込み：' + new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) + '（家のパソコンの写し。数十秒〜数分遅れることがあります）';
@@ -146,7 +148,24 @@ function settle(e, res) {   // 1レースの購入額・払戻
 }
 $('#day').addEventListener('change', e => showDay(e.target.value));
 $('#reload').addEventListener('click', () => { S.resFiles = {}; loadAll(); });
+// 今日の勝負レース（記録だけ。実際には買わない）
+async function showShobu(d) {
+  const box = $('#shobu'); if (!box) return;
+  const D = S.sbFiles && S.sbFiles[d] ? await readJson(S.sbFiles[d]) : null;
+  if (!D || !D.races) { box.innerHTML = ''; return; }
+  const P = v => v == null ? '-' : Math.round(v * 100) + '%';
+  const picks = Object.values(D.races).filter(x => x.pick), sm = D.sum || {};
+  const cands = (D.cands || []).filter(c => !D.races[c.key]);
+  box.innerHTML = `<h3>勝負レース（記録だけ・買っていません）　${picks.length}/3R</h3>` +
+    (picks.length ? picks.map(x => { const pl = x.plan, pm = (x.ret || 0) - pl.cost;
+      return `<div class="race"><div class="h"><div class="t">${esc(x.name)}</div><div class="${x.settled ? cls(pm) : ''}">${x.settled ? sgn(pm) : '結果待ち'}</div></div>
+        <div class="meta">${esc(x.time || '')} 発走・${x.at ? esc(x.at) + ' 判断・' : ''}${yen(pl.cost)}・推定回収率 ${P(pl.estRoi)}${x.settled ? `・払戻 ${yen(x.ret || 0)}` : ''}</div>
+        <div class="bets">${pl.pks.map(p => `<div><span>${esc(p.title)}（${p.n}点）</span><span>推定 ${P(p.roi)}</span></div>`).join('')}</div></div>`; }).join('') : '<p class="sub">まだ選んだレースはありません。</p>') +
+    (cands.length ? `<p class="sub">これからの候補（${esc(D.candsAt || '')}時点）：${cands.map(c => `${esc(c.name)} ${esc(c.time || '')}（推定${P(c.estRoi)}）`).join('／')}</p>` : '') +
+    (sm.settled ? `<p class="sub">記録の収支：${yen(sm.cost)} → ${yen(sm.ret)}（${sgn(sm.ret - sm.cost)}）</p>` : '');
+}
 async function showDay(d) {
+  showShobu(d);
   const { log, res } = await dayData(d);
   const rows = Object.entries(log).map(([k, e]) => ({ k, e, s: settle(e, res[k]) }))
     .sort((a, b) => (+a.k.split('-')[5] - +b.k.split('-')[5]) || a.k.localeCompare(b.k));   // レース番号の順（同じ番号は競馬場の順）
@@ -180,14 +199,73 @@ async function loadPL() {
   $('#plTable').innerHTML = `<div class="tablewrap"><table><tr><th>日付</th><th>レース</th><th>的中</th><th>購入</th><th>払戻</th><th>収支</th></tr>${out.map(r => `<tr><td>${ymd(r.d)}</td><td>${r.n}</td><td>${r.hit}</td><td>${yen(r.cost)}</td><td>${yen(r.ret)}</td><td class="${cls(r.ret - r.cost)}">${sgn(r.ret - r.cost)}</td></tr>`).join('')}</table></div><p class="sub">結果が出ていないレースは払戻0円で数えています。家のPCの結果の写しが無い日は、反省会の記録の払戻を使います。</p>`;
 }
 
+// 家のパソコンが計算して保存した予想（見るだけ。2台目のパソコンと同じ数字）
+const MARKS = ['◎', '○', '▲', '△', '△'];
+async function loadPred(viewId) {
+  const pid = await folder('predict', viewId);
+  const fs = (await list(pid)).filter(f => /^\d{8}\.json$/.test(f.name)).sort((a, b) => b.name.localeCompare(a.name));
+  S.pd = fs;
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }).replace(/-/g, '');
+  const pick = fs.find(f => f.name.slice(0, 8) === today) || fs.find(f => f.name.slice(0, 8) > today) || fs[0];
+  $('#pdDay').innerHTML = fs.map(f => `<option value="${f.id}"${pick && f.id === pick.id ? ' selected' : ''}>${ymd(f.name.slice(0, 8))}${f.name.slice(0, 8) === today ? '（今日）' : ''}</option>`).join('') || '<option>予想の写しなし</option>';
+  if (pick) showPred(pick.id, pick.name.slice(0, 8)); else $('#pred').innerHTML = '<p class="empty">まだ予想の写しがありません（家のパソコンで GATE IN を新しい版で起動すると、開催日に置かれます）</p>';
+}
+$('#pdDay').addEventListener('change', e => { const f = (S.pd || []).find(x => x.id === e.target.value); if (f) showPred(f.id, f.name.slice(0, 8)); });
+async function showPred(id, d) {
+  const v = await readJson(id) || {};
+  const pre = `${d.slice(0, 4)}-${d.slice(4)}-`;
+  const rows = Object.entries(v).filter(([k]) => k.startsWith(pre))
+    .sort((a, b) => (+a[0].split('-')[5] - +b[0].split('-')[5]) || a[0].localeCompare(b[0]));
+  const nAb = rows.filter(([, r]) => r.by === '自動投票').length;
+  $('#pdTop').innerHTML = rows.length ? `<p class="sub">${rows.length}R（締切前に最終判断した予想 ${nAb}R・それ以外は朝〜発走20分前の予想）。家のパソコンが計算したものの写しです。</p>` : '';
+  const PJ = { S: 'スロー', M: 'ミドル', H: 'ハイ' };
+  $('#pred').innerHTML = rows.length ? rows.map(([k, r]) => {
+    const hs = r.horses || [], pc = r.pace ? Object.entries(r.pace).sort((a, b) => b[1] - a[1])[0] : null;
+    const at = r.savedAt ? new Date(r.savedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '';
+    const nums = id => r.pk && r.pk[id] ? [...new Set(r.pk[id].keys.flatMap(k => String(k).split(/[-→]/)))].map(Number) : [];
+    const b6 = nums('box6'), j2 = r.pk && r.pk.jiku2 ? r.pk.jiku2.keys.map(k => String(k).split('-').map(Number)) : [];
+    const jAx = j2.length ? j2[0].filter(n => j2.every(k => k.includes(n))) : [];
+    const pk = [b6.length ? `<div><span>3連複 6頭ボックス（20点）</span><span>${b6.join('・')}</span></div>` : '',
+      jAx.length === 2 ? `<div><span>3連複 2頭軸（${j2.length}点）</span><span>${jAx.join('・')} → ${j2.map(k => k.find(n => !jAx.includes(n))).join('・')}</span></div>` : ''].join('');
+    return `<div class="race"><div class="h"><div class="t">${esc(r.track || '')}${r.raceNo || ''}R ${esc(r.name || '')}<span class="chip${r.by === '自動投票' ? ' hit' : ''}">${r.by === '自動投票' ? '最終' : '途中'}</span></div><div class="sub">${at}</div></div>
+      <div class="meta">${r.surface || ''}${r.dist || ''}m・${r.n}頭${pc ? `・ペース ${PJ[pc[0]]}（${Math.round(pc[1] * 100)}%）` : ''}</div>
+      <div class="tablewrap" style="margin:6px 0 0"><table class="pdt"><tr><th>印</th><th>馬</th><th>勝率</th><th>3着内</th><th>人気</th></tr>${hs.slice(0, 5).map((h, i) => `<tr><td>${MARKS[i]}</td><td>${h.no} ${esc(h.name || '')}</td><td>${Math.round(h.win * 100)}%</td><td>${Math.round(h.fuku * 100)}%</td><td>${h.pop ?? '-'}${h.odds ? `<div class="sub">${h.odds}倍</div>` : ''}</td></tr>`).join('')}</table></div>
+      ${pk ? `<div class="bets">${pk}</div>` : ''}</div>`;
+  }).join('') : '<p class="empty">この日の予想はありません</p>';
+}
+
 async function loadReview(viewId) {
   const imId = await folder('improve', viewId); const rvId = imId ? await folder('review', imId) : null;
   const fs = (await list(rvId)).filter(f => /^\d{8}\.json$/.test(f.name)).sort((a, b) => b.name.localeCompare(a.name));
   S.rv = fs.map(f => ({ ...f }));
+  const tf = (await list(rvId)).find(f => f.name === 'total.json');
+  S.total = tf ? await readJson(tf.id) : null;
   $('#rvDay').innerHTML = fs.map(f => `<option value="${f.id}">${ymd(f.name.slice(0, 8))}</option>`).join('') || '<option>反省会の記録なし</option>';
   if (fs.length) showReview(fs[0].id);
 }
 $('#rvDay').addEventListener('change', e => showReview(e.target.value));
+// 着順の当たり具合：オッズなしの見立て・最終の予想・人気順をならべる
+function kpiHtml(K, lab) {
+  if (!K || !K.order) return '';
+  const O = K.order, cols = [['mitate', '見立て'], ['final', '最終'], ['ninki', '人気順']].filter(([k]) => O[k]);
+  const P = v => v == null ? '-' : Math.round(v * 100) + '%';
+  const row = (name, f, fmt, lower) => {
+    const vs = cols.map(([k]) => f(O[k])), b = lower ? Math.min(...vs) : Math.max(...vs);
+    return `<tr><td>${name}</td>${vs.map(v => `<td>${v === b && cols.length > 1 ? `<b class="plus">${fmt(v)}</b>` : fmt(v)}</td>`).join('')}</tr>`;
+  };
+  const D = K.dis || {}, G = K.gap || {}, m = D.mitate;
+  return `<h3>着順の当たり具合（${lab}・${O[cols[0][0]].n}R）</h3>
+    <div class="tablewrap"><table><tr><th></th>${cols.map(([, t]) => `<th>${t}</th>`).join('')}</tr>` +
+    row('順位の相関', o => o.sp, v => v.toFixed(2)) + row('着順のずれ', o => o.mae, v => v.toFixed(2) + '着', true) +
+    row('上位3頭→3着内', o => o.in3, v => v.toFixed(2) + '頭') + row('上位5頭→掲示板', o => o.in5, v => v.toFixed(2) + '頭') +
+    row('1番手の勝率', o => o.win, P) + row('1番手の3着内', o => o.top3, P) + row('1番手の大敗', o => o.big, P, true) + `</table></div>` +
+    (m ? `<div class="tablewrap"><table><tr><th>人気と違う見立て</th><th>頭数</th><th>結果</th></tr>
+      <tr><td>6番人気以下を上位3頭に</td><td>${m.up.n}</td><td>3着内 ${P(m.up.top3)}<br><span class="sub">全体 ${P(m.up.base)}</span></td></tr>
+      <tr><td>3番人気以内を6番手以下に</td><td>${m.down.n}</td><td>4着以下 ${P(m.down.out)}<br><span class="sub">全体 ${P(m.down.base)}</span></td></tr>
+      <tr><td>人気と3つ以上ずらした</td><td>${m.dir.n}</td><td>向きが合った ${P(m.dir.ok)}</td></tr></table></div>` : '') +
+    (G.beat && G.beat.n ? `<p class="sub">人気より3つ以上上に来た馬（${G.beat.n}頭）を見立てで人気より上に見ていた：${P(G.beat.mitate)}。5番人気以内で3つ以上沈んだ馬（${G.sank.n}頭）を下に見ていた：${P(G.sank.mitate)}。</p>` : '') +
+    `<p class="sub">見立て＝オッズを使わない能力モデル。最終＝締切前のオッズと検証を入れた予想。太字はその行でいちばん良いもの。</p>`;
+}
 async function showReview(id) {
   const r = await readJson(id); const s = (r && r.summary) || {};
   if (!r) { $('#review').innerHTML = '<p class="empty">読めませんでした</p>'; return; }
@@ -201,6 +279,8 @@ async function showReview(id) {
       <div class="card"><div class="k">位置取りの当たり</div><div class="v">${sh.posCorr != null ? sh.posCorr.toFixed(2) : '-'}</div></div></div>
     <h3>買い方ごとの成績（その日）</h3>
     <div class="tablewrap"><table><tr><th>買い方</th><th>R</th><th>的中</th><th>購入</th><th>払戻</th><th>回収率</th></tr>${rows.map(v => `<tr><td>${esc(PK[v.k] || v.k)}</td><td>${v.races}</td><td>${v.hit}</td><td>${yen(v.cost)}</td><td>${yen(v.ret)}</td><td class="${cls(v.ret - v.cost)}">${v.cost ? Math.round(v.ret / v.cost * 100) + '%' : '-'}</td></tr>`).join('')}</table></div>
+    ${kpiHtml(s.kpi, 'この日')}
+    ${S.total && S.total.recent && S.total.recent.kpi ? kpiHtml(S.total.recent.kpi, '直近8週') : ''}
     ${s.miss ? `<h3>外れた理由</h3><div class="tablewrap"><table>${Object.entries(s.miss).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}R</td></tr>`).join('')}</table></div>` : ''}`;
 }
 

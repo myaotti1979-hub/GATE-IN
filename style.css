@@ -47,3 +47,6 @@ th { color: var(--muted); font-weight: 500; font-size: 12px; }
 h3 { font-size: 14px; margin: 16px 0 8px; }
 .foot { font-size: 12px; color: var(--muted); text-align: center; margin-top: 24px; }
 .empty { color: var(--muted); text-align: center; padding: 24px 0; }
+.pdt td:nth-child(2), .pdt th:nth-child(2) { text-align: left; }
+.pdt td:first-child { width: 2em; }
+.pdt .sub { font-size: 11px; }
