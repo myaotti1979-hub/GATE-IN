@@ -1,5 +1,5 @@
 // 画面の部品だけを保存（データは毎回ドライブから読む。ドライブの中身はキャッシュしない）
-const CACHE = 'gatein-viewer-v2';
+const CACHE = 'gatein-viewer-v3';
 const FILES = ['./', './index.html', './style.css', './app.js', './config.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });

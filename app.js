@@ -10,29 +10,39 @@ const ymd = d => `${d.slice(0, 4)}/${d.slice(4, 6)}/${d.slice(6, 8)}`;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const PK = { value: '狙い目 単勝', tan1: '◎の単勝', umaren: '馬連 流し', wide1: 'ワイド 1点', wideana: 'ワイド 穴流し', sanfuku: '3連複 軸1頭＋5頭', sanfuku6: '3連複 軸1頭＋6頭', box5: '3連複 5頭BOX', box6: '3連複 6頭BOX', jiku2: '3連複 2頭軸流し', santan: '3連単 フォーメーション', _bought: '実際に買った分' };
 
-// ---------- ログイン（Google Identity Services のトークン方式。トークンはこの画面を開いている間だけ） ----------
-let token = null, tokenExp = 0, tokenClient = null, waiters = [], started = false;
+// ---------- ログイン（リダイレクト方式：ホーム画面に追加したアプリでも動く。トークンは1時間で切れ、切れたら自動で取り直す） ----------
+let token = null, tokenExp = 0, started = false;
 function storeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function storeSet(k, v) { try { localStorage.setItem(k, v); } catch { } }
+const REDIRECT = location.origin + location.pathname.replace(/index\.html$/, '');
+function authRedirect(prompt) {
+  const st = Math.random().toString(36).slice(2); storeSet('gatein_state', st);
+  const u = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  Object.entries({ client_id: CFG.clientId, redirect_uri: REDIRECT, response_type: 'token', scope: SCOPE, include_granted_scopes: 'true', state: st, prompt })
+    .forEach(([k, v]) => v && u.searchParams.set(k, v));
+  location.replace(u.toString());
+}
+function readHash() {   // Google から戻ってきたとき：#access_token=… を受け取る
+  if (!location.hash.includes('access_token') && !location.hash.includes('error')) return;
+  const h = new URLSearchParams(location.hash.slice(1)); history.replaceState(null, '', REDIRECT);
+  if (h.get('state') !== storeGet('gatein_state')) return;
+  if (h.get('error')) { storeSet('gatein_signed', ''); $('#loginMsg').textContent = h.get('error') === 'interaction_required' || h.get('error') === 'login_required' ? 'もう一度ログインしてください' : 'ログインできませんでした：' + h.get('error'); return; }
+  token = h.get('access_token'); tokenExp = Date.now() + ((+h.get('expires_in') || 3600) - 60) * 1000;
+  storeSet('gatein_tok', JSON.stringify({ token, tokenExp })); storeSet('gatein_signed', '1');
+}
 function initAuth() {
-  if (!window.google || !google.accounts || !google.accounts.oauth2) { setTimeout(initAuth, 200); return; }
-  tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: CFG.clientId, scope: SCOPE,
-    callback: r => {
-      if (r.error) { $('#loginMsg').textContent = 'ログインできませんでした：' + r.error; return; }
-      token = r.access_token; tokenExp = Date.now() + (r.expires_in - 60) * 1000; storeSet('gatein_signed', '1');
-      waiters.splice(0).forEach(f => f());
-      if (!started) { started = true; start(); }
-    },
-  });
-  if (storeGet('gatein_signed')) tokenClient.requestAccessToken({ prompt: '' });
-  else showLogin();
+  readHash();
+  if (!token) { try { const t = JSON.parse(storeGet('gatein_tok') || 'null'); if (t && Date.now() < t.tokenExp) { token = t.token; tokenExp = t.tokenExp; } } catch { } }
+  if (token) { started = true; start(); return; }
+  if (storeGet('gatein_signed') === '1' && !$('#loginMsg').textContent) { authRedirect('none'); return; }   // 前にログインした：画面を出さずに取り直す
+  showLogin();
 }
 function showLogin() { $('#login').hidden = false; $('#tabs').hidden = true; $('#main').hidden = true; }
-$('#signin').addEventListener('click', () => tokenClient && tokenClient.requestAccessToken({ prompt: 'consent' }));
+$('#signin').addEventListener('click', () => authRedirect('select_account'));
 function ensureToken() {
   if (token && Date.now() < tokenExp) return Promise.resolve();
-  return new Promise(res => { waiters.push(res); tokenClient.requestAccessToken({ prompt: '' }); });
+  token = null; authRedirect(storeGet('gatein_signed') === '1' ? 'none' : 'select_account');
+  return new Promise(() => { });   // ページが切り替わるので待つだけ
 }
 
 // ---------- Google ドライブ ----------
@@ -41,7 +51,7 @@ async function drive(path, params = {}, raw = false) {
   const u = new URL('https://www.googleapis.com/drive/v3/' + path);
   Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
   const r = await fetch(u, { headers: { Authorization: 'Bearer ' + token } });
-  if (r.status === 401) { token = null; return drive(path, params, raw); }
+  if (r.status === 401) { token = null; tokenExp = 0; storeSet('gatein_tok', ''); return drive(path, params, raw); }
   if (!r.ok) throw new Error('ドライブ ' + r.status);
   return raw ? r.text() : r.json();
 }
@@ -199,7 +209,7 @@ function renderSetting() {
     <tr><td>いまの状態</td><td>${esc(sa.msg || sa.need || '-')}</td></tr></table></div>
     <p class="sub">設定の変更や購入は家のパソコンだけでできます。この画面からは何も変えません。</p>
     <button class="btn ghost" id="signout">ログアウト</button>`;
-  $('#signout').addEventListener('click', () => { if (token) google.accounts.oauth2.revoke(token, () => { }); token = null; started = false; storeSet('gatein_signed', ''); showLogin(); });
+  $('#signout').addEventListener('click', () => { if (token) fetch('https://oauth2.googleapis.com/revoke?token=' + encodeURIComponent(token), { method: 'POST' }).catch(() => { }); token = null; started = false; storeSet('gatein_tok', ''); storeSet('gatein_signed', ''); showLogin(); });
 }
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
