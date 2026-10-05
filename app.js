@@ -93,8 +93,9 @@ async function loadAll() {
   S.status = await readJson((statusFile.find(f => f.name === 'status.json') || {}).id);
   const days = S.logs.map(f => f.name.slice(0, 8));
   $('#day').innerHTML = days.map(d => `<option value="${d}">${ymd(d)}</option>`).join('') || '<option>記録なし</option>';
+  await loadReview(viewId);
   if (days.length) await showDay(days[0]);
-  renderSetting(); loadPL(); loadReview(viewId);
+  renderSetting(); loadPL();
   $('#foot').textContent = '読み込み：' + new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) + '（家のパソコンの写し。数十秒〜数分遅れることがあります）';
 }
 function renderHome(hb) {
@@ -105,8 +106,14 @@ function renderHome(hb) {
 
 async function dayData(d) {
   const lf = S.logs.find(f => f.name.startsWith(d));
-  const [log, res] = await Promise.all([readJson(lf && lf.id), readJson(S.resFiles[d])]);
-  return { log: log || {}, res: res || {} };
+  const [log, res0] = await Promise.all([readJson(lf && lf.id), readJson(S.resFiles[d])]);
+  let res = res0 || {};
+  if (!Object.keys(res).length) {   // 結果の写しがまだ無い日は、反省会の記録（実際に買った分の払戻）を使う
+    const rf = (S.rv || []).find(f => f.name.startsWith(d));
+    const rv = rf ? await readJson(rf.id) : null;
+    for (const r of (rv && rv.races) || []) res[r.key] = { result: (r.top3 || []).join('-'), _ret: r.bought ? +r.bought.ret || 0 : null, payout: {} };
+  }
+  return { log: log || {}, res };
 }
 function settle(e, res) {   // 1レースの購入額・払戻
   const p = e.plan || {}, bought = e.status === '購入済み';
@@ -116,6 +123,7 @@ function settle(e, res) {   // 1レースの購入額・払戻
     const y = ((pay[b.type] || {})[b.key] || 0) * Math.floor((+b.yen || 0) / 100);
     if (y > 0) { ret += y; hits.push(b); }
   }
+  if (res && res._ret != null) ret = res._ret;   // 反省会の記録から
   return { cost, ret: bought ? ret : 0, hits, done: !!(res && res.result), bought };
 }
 $('#day').addEventListener('change', e => showDay(e.target.value));
@@ -151,13 +159,13 @@ async function loadPL() {
   const T = out.reduce((a, r) => ({ cost: a.cost + r.cost, ret: a.ret + r.ret, n: a.n + r.n }), { cost: 0, ret: 0, n: 0 });
   $('#plTotal').innerHTML = [['購入（直近）', yen(T.cost)], ['払戻', yen(T.ret)], ['収支', `<span class="${cls(T.ret - T.cost)}">${sgn(T.ret - T.cost)}</span>`], ['回収率', T.cost ? Math.round(T.ret / T.cost * 100) + '%' : '-']]
     .map(([k, v]) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
-  $('#plTable').innerHTML = `<div class="tablewrap"><table><tr><th>日付</th><th>レース</th><th>的中</th><th>購入</th><th>払戻</th><th>収支</th></tr>${out.map(r => `<tr><td>${ymd(r.d)}</td><td>${r.n}</td><td>${r.hit}</td><td>${yen(r.cost)}</td><td>${yen(r.ret)}</td><td class="${cls(r.ret - r.cost)}">${sgn(r.ret - r.cost)}</td></tr>`).join('')}</table></div><p class="sub">結果が出ていないレースは払戻0円で数えています。</p>`;
+  $('#plTable').innerHTML = `<div class="tablewrap"><table><tr><th>日付</th><th>レース</th><th>的中</th><th>購入</th><th>払戻</th><th>収支</th></tr>${out.map(r => `<tr><td>${ymd(r.d)}</td><td>${r.n}</td><td>${r.hit}</td><td>${yen(r.cost)}</td><td>${yen(r.ret)}</td><td class="${cls(r.ret - r.cost)}">${sgn(r.ret - r.cost)}</td></tr>`).join('')}</table></div><p class="sub">結果が出ていないレースは払戻0円で数えています。家のPCの結果の写しが無い日は、反省会の記録の払戻を使います。</p>`;
 }
 
 async function loadReview(viewId) {
   const imId = await folder('improve', viewId); const rvId = imId ? await folder('review', imId) : null;
   const fs = (await list(rvId)).filter(f => /^\d{8}\.json$/.test(f.name)).sort((a, b) => b.name.localeCompare(a.name));
-  S.rv = fs;
+  S.rv = fs.map(f => ({ ...f }));
   $('#rvDay').innerHTML = fs.map(f => `<option value="${f.id}">${ymd(f.name.slice(0, 8))}</option>`).join('') || '<option>反省会の記録なし</option>';
   if (fs.length) showReview(fs[0].id);
 }
