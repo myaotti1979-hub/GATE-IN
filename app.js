@@ -104,12 +104,13 @@ async function loadAll() {
   renderHome(hb);
   const abId = await folder('autobet', viewId);
   const logId = abId ? await folder('log', abId) : null;
-  const [logFiles, resFiles, statusFile, sbFiles] = await Promise.all([list(logId), list(await folder('results', viewId)), list(abId), list(await folder('shobu', viewId))]);
+  const [logFiles, resFiles, statusFile, sbFiles, w5Files] = await Promise.all([list(logId), list(await folder('results', viewId)), list(abId), list(await folder('shobu', viewId)), list(await folder('win5', viewId))]);
   S.sbFiles = Object.fromEntries(sbFiles.map(f => [f.name.slice(0, 8), f.id]));
+  S.w5Files = Object.fromEntries(w5Files.map(f => [f.name.slice(0, 8), f.id]));
   S.logs = logFiles.filter(f => /^\d{8}\.json$/.test(f.name)).sort((a, b) => b.name.localeCompare(a.name));
   S.resFiles = Object.fromEntries(resFiles.map(f => [f.name.slice(0, 8), f.id]));
   S.status = await readJson((statusFile.find(f => f.name === 'status.json') || {}).id);
-  const days = [...new Set([...S.logs.map(f => f.name.slice(0, 8)), ...Object.keys(S.sbFiles)])].sort().reverse();
+  const days = [...new Set([...S.logs.map(f => f.name.slice(0, 8)), ...Object.keys(S.sbFiles), ...Object.keys(S.w5Files)])].sort().reverse();
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }).replace(/-/g, '');
   $('#day').innerHTML = days.map((d, i) => `<option value="${d}">${ymd(d)}${d === today ? '（今日）' : i === 0 ? '（最新の開催日）' : ''}</option>`).join('') || '<option>記録なし</option>';
   await loadReview(viewId);
@@ -168,8 +169,19 @@ async function showShobu(d) {
     (C ? `<p class="sub">${esc(C.fixedAt)}の予定：${C.plan.map(nm).join('／')}${C.reserve.length ? `<br>控え：${C.reserve.map(nm).join('／')}` : ''}</p>${cards(C.races)}` +
       Object.values(C.races).filter(x => !x.pick).map(x => `<p class="sub">見送り：${esc(x.name)}（${esc(x.why || '')}）${x.up ? ` → ${nm(x.up)} を繰り上げ` : ''}</p>`).join('') + sum(C.sum) : '<p class="sub">最初のレースの15分前に決まります。</p>');
 }
+// WIN5 の買い目（見るだけ）
+async function showWin5(d) {
+  const box = $('#win5'); if (!box) return;
+  const W = S.w5Files && S.w5Files[d] ? await readJson(S.w5Files[d]) : null;
+  if (!W || !W.legs) { box.innerHTML = ''; return; }
+  const P = v => v == null ? '-' : (v * 100 >= 10 ? Math.round(v * 100) : (v * 100).toFixed(1)) + '%';
+  const plan = p => p ? `<div class="race"><div class="h"><div class="t">オッズなしの見立て</div><div>${p.points}点 ${yen(p.cost)}</div></div>
+      <div class="meta">5つとも当たる確率 ${P(p.hit)}</div>
+      <div class="bets">${W.legs.map((l, i) => `<div><span>${i + 1}. ${esc(l.name)}</span><span><b>${p.picks[i].map(h => h.no).join('・')}</b></span></div>`).join('')}</div></div>` : '';
+  box.innerHTML = `<h3>WIN5 の買い目（${esc(W.made || '')}時点${W.known ? '' : '・対象は推定'}）</h3><p class="sub">締切は1レース目（${esc(W.close || '')} 発走）の前。購入は手動です。</p>` + plan(W.plans && W.plans.hit);
+}
 async function showDay(d) {
-  showShobu(d);
+  showShobu(d); showWin5(d);
   const { log, res } = await dayData(d);
   const rows = Object.entries(log).map(([k, e]) => ({ k, e, s: settle(e, res[k]) }))
     .sort((a, b) => (+a.k.split('-')[5] - +b.k.split('-')[5]) || a.k.localeCompare(b.k));   // レース番号の順（同じ番号は競馬場の順）
