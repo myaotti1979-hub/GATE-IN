@@ -109,7 +109,8 @@ async function loadAll() {
   S.resFiles = Object.fromEntries(resFiles.map(f => [f.name.slice(0, 8), f.id]));
   S.status = await readJson((statusFile.find(f => f.name === 'status.json') || {}).id);
   const days = S.logs.map(f => f.name.slice(0, 8));
-  $('#day').innerHTML = days.map(d => `<option value="${d}">${ymd(d)}</option>`).join('') || '<option>記録なし</option>';
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }).replace(/-/g, '');
+  $('#day').innerHTML = days.map((d, i) => `<option value="${d}">${ymd(d)}${d === today ? '（今日）' : i === 0 ? '（最新の開催日）' : ''}</option>`).join('') || '<option>記録なし</option>';
   await loadReview(viewId);
   if (days.length) await showDay(days[0]);
   renderSetting(); loadPL();
