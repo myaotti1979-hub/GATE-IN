@@ -16,6 +16,13 @@ function storeGet(k) { try { return localStorage.getItem(k); } catch { return nu
 function storeSet(k, v) { try { localStorage.setItem(k, v); } catch { } }
 const REDIRECT = location.origin + location.pathname.replace(/index\.html$/, '');
 function authRedirect(prompt) {
+  // 行ったり来たりが続かないように：自動の取り直しは1分に1回まで
+  if (prompt === 'none') {
+    const last = +storeGet('gatein_auto') || 0;
+    if (Date.now() - last < 60000) { storeSet('gatein_signed', ''); showLogin(); $('#loginMsg').textContent = 'もう一度ログインしてください'; return; }
+    storeSet('gatein_auto', String(Date.now()));
+  }
+  $('#login').hidden = false; $('#loginMsg').textContent = 'Google に確認しています…';
   const st = Math.random().toString(36).slice(2); storeSet('gatein_state', st);
   const u = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   Object.entries({ client_id: CFG.clientId, redirect_uri: REDIRECT, response_type: 'token', scope: SCOPE, include_granted_scopes: 'true', state: st, prompt })
