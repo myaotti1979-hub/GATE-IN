@@ -28,6 +28,7 @@
 
 <nav class="tabs" id="tabs" hidden>
   <button data-tab="today" class="on">開催日</button>
+  <button data-tab="card">出馬表</button>
   <button data-tab="pred">予想</button>
   <button data-tab="pl">収支</button>
   <button data-tab="review">反省会</button>
@@ -42,6 +43,12 @@
     <div id="shobu"></div>
     <h3 id="racesHead">自動投票で買った馬券</h3>
     <div id="races"></div>
+  </section>
+  <section data-view="card" hidden>
+    <div class="row"><select id="cdDay"></select></div>
+    <div class="venues" id="cdVenues"></div>
+    <div id="cdTop"></div>
+    <div id="cards"></div>
   </section>
   <section data-view="pred" hidden>
     <div class="row"><select id="pdDay"></select></div>
