@@ -13,11 +13,12 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<script>try{var t=localStorage.getItem("gatein_theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
 </head>
 <body>
 <header class="top">
   <div class="brand">GATE IN <span>見るだけ</span></div>
-  <div id="home" class="home">—</div>
+  <div class="topr"><button id="themeBtn" class="themeb" type="button" title="表示の色を切り替え">表示：自動</button><div id="home" class="home">—</div></div>
 </header>
 
 <section id="login" class="login" hidden>
@@ -41,17 +42,19 @@
     <div id="dayTotal" class="cards"></div>
     <div id="win5"></div>
     <div id="shobu"></div>
+    <div class="vanchor"></div><div class="venues sticky" id="dayVenues" hidden></div>
     <h3 id="racesHead">自動投票で買った馬券</h3>
     <div id="races"></div>
   </section>
   <section data-view="card" hidden>
     <div class="row"><select id="cdDay"></select></div>
-    <div class="venues" id="cdVenues"></div>
+    <div class="vanchor"></div><div class="venues sticky" id="cdVenues" hidden></div>
     <div id="cdTop"></div>
     <div id="cards"></div>
   </section>
   <section data-view="pred" hidden>
     <div class="row"><select id="pdDay"></select></div>
+    <div class="vanchor"></div><div class="venues sticky" id="pdVenues" hidden></div>
     <div id="pdTop"></div>
     <div id="pred"></div>
   </section>

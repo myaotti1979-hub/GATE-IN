@@ -7,6 +7,8 @@ const yen = v => (v < 0 ? '−' : '') + Math.abs(Math.round(v)).toLocaleString('
 const sgn = v => (v > 0 ? '+' : '') + yen(v);
 const cls = v => v > 0 ? 'plus' : v < 0 ? 'minus' : '';
 const ymd = d => `${d.slice(0, 4)}/${d.slice(4, 6)}/${d.slice(6, 8)}`;
+const ymdw = d => `${ymd(d)}（${'日月火水木金土'[new Date(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8)).getDay()]}）`;   // 曜日つき（2026/10）
+const todayStr = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }).replace(/-/g, '');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const PK = { value: '狙い目 単勝', tan1: '◎の単勝', umaren: '馬連 流し', wide1: 'ワイド 1点', wideana: 'ワイド 穴流し', sanfuku: '3連複 軸1頭＋5頭', sanfuku6: '3連複 軸1頭＋6頭', box5: '3連複 5頭BOX', box6: '3連複 6頭BOX', jiku2: '3連複 2頭軸流し', santan: '3連単 フォーメーション', _bought: '実際に買った分', _shobu: '勝負レース B（記録だけ）', _shobuC: '勝負レース C（記録だけ）', _shobuW: '勝負レース W（記録だけ）' };
 
@@ -84,12 +86,56 @@ async function viewPath(...names) {   // GATEIN_data/view/… のフォルダ ID
   return id;
 }
 
+// ---------- 表示の色（自動＝スマホの設定に合わせる／ライト／ダーク）（2026/10） ----------
+const THEMES = [['auto', '自動'], ['light', 'ライト'], ['dark', 'ダーク']];
+function applyTheme(t) {
+  if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme');
+  const b = document.getElementById('themeBtn'); if (b) b.textContent = '表示：' + (THEMES.find(x => x[0] === t) || THEMES[0])[1];
+  const dark = t === 'dark' || (t !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', dark ? '#0a0f15' : '#ffffff');
+}
+applyTheme(storeGet('gatein_theme') || 'auto');
+document.getElementById('themeBtn').addEventListener('click', () => {
+  const cur = storeGet('gatein_theme') || 'auto', i = THEMES.findIndex(x => x[0] === cur), nx = THEMES[(i + 1) % THEMES.length][0];
+  storeSet('gatein_theme', nx); applyTheme(nx);
+});
+
 // ---------- 画面 ----------
 const S = { logs: [], res: {}, status: null, rv: [] };
 document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('main section').forEach(s => s.hidden = s.dataset.view !== b.dataset.tab);
 }));
+
+// ---------- 開催場のタブ（開催日・出馬表・予想で共通。最後に押した場を覚えて、ほかの画面・ほかの日でもその場を開く）（2026/10） ----------
+const JYO = { '01': '札幌', '02': '函館', '03': '福島', '04': '新潟', '05': '東京', '06': '中山', '07': '中京', '08': '京都', '09': '阪神', '10': '小倉' };
+const jyoOf = k => String(k).split('-')[2] || '';
+const trackOf = (k, t) => t || JYO[jyoOf(k)] || '';
+S.venuePref = storeGet('gatein_venue') || '';
+function venueList(pairs) {   // [[レースのキー, 場の名前]] → 場の名前の一覧（競馬場コードの順）
+  const m = new Map();
+  for (const [k, t] of pairs) { const n = trackOf(k, t); if (n && !m.has(n)) m.set(n, jyoOf(k) || '99'); }
+  return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(x => x[0]);
+}
+function drawVenues(sel, venues, badge) {   // タブを描いて、いま開く場を返す（覚えている場がこの日になければ最初の場）
+  const el = $(sel);
+  if (!venues.length) { el.hidden = true; el.innerHTML = ''; return ''; }
+  const v = venues.includes(S.venuePref) ? S.venuePref : venues[0];
+  el.hidden = false;
+  el.innerHTML = venues.map(x => `<button type="button" data-v="${esc(x)}" class="${x === v ? 'on' : ''}">${esc(x)}${badge && badge[x] ? `<i>${badge[x]}</i>` : ''}</button>`).join('');
+  return v;
+}
+function setTopH() { const t = document.querySelector('.top'); if (t) document.documentElement.style.setProperty('--toph', t.offsetHeight + 'px'); }
+window.addEventListener('resize', setTopH); setTopH();
+function onVenue(sel, render) {
+  $(sel).addEventListener('click', e => {
+    const b = e.target.closest('button[data-v]'); if (!b) return;
+    S.venuePref = b.dataset.v; storeSet('gatein_venue', b.dataset.v); render();
+    // 下まで読んでいたら、切り替えた場の1レース目が見える位置へ
+    const a = $(sel).previousElementSibling, th = document.querySelector('.top').offsetHeight;
+    if (a && a.classList.contains('vanchor') && a.getBoundingClientRect().top < th) window.scrollTo(0, a.getBoundingClientRect().top + window.scrollY - th);
+  });
+}
 
 async function start() {
   $('#login').hidden = true; $('#tabs').hidden = false; $('#main').hidden = false;
@@ -112,8 +158,8 @@ async function loadAll() {
   S.status = await readJson((statusFile.find(f => f.name === 'status.json') || {}).id);
   // 開催日の一覧：自動投票の記録・勝負レース・WIN5に加えて、結果の写しがある日（自動投票の記録がない過去の日も）（2026/10）
   const days = [...new Set([...S.logs.map(f => f.name.slice(0, 8)), ...Object.keys(S.sbFiles), ...Object.keys(S.w5Files), ...Object.keys(S.resFiles).filter(d => /^\d{8}$/.test(d))])].sort().reverse();
-  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }).replace(/-/g, '');
-  $('#day').innerHTML = days.map((d, i) => `<option value="${d}">${ymd(d)}${d === today ? '（今日）' : i === 0 ? '（最新の開催日）' : ''}</option>`).join('') || '<option>記録なし</option>';
+  const today = todayStr();
+  $('#day').innerHTML = days.map((d, i) => `<option value="${d}">${ymdw(d)}${d === today ? '・今日' : i === 0 ? '・最新' : ''}</option>`).join('') || '<option>記録なし</option>';
   await loadReview(viewId);
   await loadPred(viewId);
   await loadCards(cdFiles);
@@ -122,9 +168,10 @@ async function loadAll() {
   $('#foot').textContent = '読み込み：' + new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) + '（家のパソコンの写し。数十秒〜数分遅れることがあります）';
 }
 function renderHome(hb) {
-  if (!hb) { $('#home').textContent = '家のPC：記録なし'; return; }
+  if (!hb) { $('#home').textContent = '家のPC：記録なし'; setTopH(); return; }
   const min = Math.round((Date.now() / 1000 - hb.t) / 60);
   $('#home').innerHTML = (min <= 10 ? '<span class="ok">家のPC 動作中</span>' : '<span class="ng">家のPC 停止中？</span>') + `<br>${esc(hb.at)}（${min}分前）`;
+  setTopH();
 }
 
 async function dayData(d) {
@@ -182,7 +229,7 @@ async function showWin5(d) {
       <div class="bets">${W.legs.map((l, i) => `<div><span>${i + 1}. ${esc(l.name)}</span><span><b>${p.picks[i].map(h => h.no).join('・')}</b></span></div>`).join('')}</div></div>` : '';
   box.innerHTML = `<h3>WIN5 の買い目（${esc(W.made || '')}時点${W.known ? '' : '・対象は推定'}）</h3><p class="sub">締切は1レース目（${esc(W.close || '')} 発走）の前。購入は手動です。</p>` + plan(W.plans && W.plans.hit);
 }
-// ===== 出馬表（家のパソコンが置いた写し：前日〜3日先の開催日。結果が出たら着順と確定払戻も）（2026/10） =====
+// ===== 出馬表（家のパソコンが置いた写し：9/1〜3日先の開催日。結果が出たら着順と確定払戻も）（2026/10） =====
 const PAYJP = [['tan', '単勝'], ['fuku', '複勝'], ['waku', '枠連'], ['umaren', '馬連'], ['wide', 'ワイド'], ['umatan', '馬単'], ['sanfuku', '3連複'], ['santan', '3連単']];
 function payoutHtml(p) {
   if (!p) return '';
@@ -193,33 +240,36 @@ const uChip = (no, w) => `<span class="u w${w || 0}">${esc(no)}</span>`;
 function loadCards(files) {
   S.cdFiles = Object.fromEntries((files || []).filter(f => /^\d{8}\.json$/.test(f.name)).map(f => [f.name.slice(0, 8), f.id]));
   const days = Object.keys(S.cdFiles).sort().reverse();
-  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }).replace(/-/g, '');
+  const today = todayStr();
   const pick = days.includes(today) ? today : (days.filter(d => d > today).sort()[0] || days[0]);
-  $('#cdDay').innerHTML = days.map(d => `<option value="${d}"${d === pick ? ' selected' : ''}>${ymd(d)}${d === today ? '（今日）' : d > today ? '（これから）' : ''}</option>`).join('') || '<option>出馬表の写しなし</option>';
+  $('#cdDay').innerHTML = days.map(d => `<option value="${d}"${d === pick ? ' selected' : ''}>${ymdw(d)}${d === today ? '・今日' : d > today ? '・これから' : ''}</option>`).join('') || '<option>出馬表の写しなし</option>';
   if (pick) return showCards(pick);
-  $('#cards').innerHTML = '<p class="empty">まだ出馬表の写しがありません。家のパソコンで新しい版の GATE IN を起動すると、前日〜3日先の開催日の分が置かれます。</p>';
+  $('#cdVenues').hidden = true;
+  $('#cards').innerHTML = '<p class="empty">まだ出馬表の写しがありません。家のパソコンで新しい版の GATE IN を起動すると、9/1からの開催日（3日先まで）の分が少しずつ置かれます。</p>';
 }
 $('#cdDay').addEventListener('change', e => showCards(e.target.value));
 async function showCards(d) {
   if (!S.cdFiles || !S.cdFiles[d]) return;
   const C = await readJson(S.cdFiles[d]) || {};
-  const R = Object.entries(C.races || {}).map(([k, r]) => ({ k, ...r }));
-  const venues = [...new Set(R.sort((a, b) => a.k.localeCompare(b.k)).map(r => r.track))];
-  S.cdData = { d, R, venues }; if (!venues.includes(S.cdVenue)) S.cdVenue = venues[0];
-  $('#cdTop').innerHTML = C.made ? `<p class="sub">${esc(C.made)} 時点の写しです（家のパソコンが、当日の発走前は10分ごと・先の日は1時間ごとに更新）。オッズ・馬体重は写した時点のものです。</p>` : '';
+  S.cdData = { d, made: C.made, R: Object.entries(C.races || {}).map(([k, r]) => ({ k, ...r })) };
   renderCardList();
 }
+S.cdSort = storeGet('gatein_cdsort') === 'fin' ? 'fin' : 'no';   // 確定したレースの並び：馬番順／着順
 function renderCardList() {
-  const { R, venues } = S.cdData || { R: [], venues: [] };
-  $('#cdVenues').innerHTML = venues.map(v => `<button data-v="${esc(v)}" class="${v === S.cdVenue ? 'on' : ''}">${esc(v)}</button>`).join('');
-  const rs = R.filter(r => r.track === S.cdVenue).sort((a, b) => a.raceNo - b.raceNo);
+  const { R, made } = S.cdData || { R: [] };
+  const v = drawVenues('#cdVenues', venueList(R.map(r => [r.k, r.track])));
+  const rs = R.filter(r => trackOf(r.k, r.track) === v).sort((a, b) => a.raceNo - b.raceNo);
+  const nDone = rs.filter(r => r.result).length, allDone = rs.length > 0 && nDone === rs.length;
+  $('#cdTop').innerHTML = (made ? `<p class="sub">${allDone ? `レース確定後の写しです（${esc(made)}）。オッズ・人気は最終のものです。` : `${esc(made)} 時点の写しです（家のパソコンが、当日の発走前は10分ごと・先の日は1時間ごとに更新）。オッズ・馬体重は写した時点のものです。`}</p>` : '') +
+    (nDone ? `<div class="seg"><span>確定したレースの並び</span><button type="button" data-s="no" class="${S.cdSort === 'no' ? 'on' : ''}">馬番順</button><button type="button" data-s="fin" class="${S.cdSort === 'fin' ? 'on' : ''}">着順</button></div>` : '');
   $('#cards').innerHTML = rs.length ? rs.map(cardHtml).join('') : '<p class="empty">この日の出馬表はありません</p>';
 }
-$('#cdVenues').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; S.cdVenue = b.dataset.v; renderCardList(); });
+onVenue('#cdVenues', renderCardList);
+$('#cdTop').addEventListener('click', e => { const b = e.target.closest('button[data-s]'); if (!b) return; S.cdSort = b.dataset.s; storeSet('gatein_cdsort', S.cdSort); renderCardList(); });
 function cardHtml(r) {
   const done = !!r.result, P = v => v == null ? '-' : Math.round(v * 100) + '%';
   const st = done ? '<span class="st done">確定</span>' : r.gateUnknown ? '<span class="st gate">枠順未定</span>' : '<span class="st pre">発走前</span>';
-  const hs = (r.horses || []).slice().sort((a, b) => done ? ((a.fin || 99) - (b.fin || 99)) || (a.no - b.no) : a.no - b.no);
+  const hs = (r.horses || []).slice().sort((a, b) => done && S.cdSort === 'fin' ? ((a.fin || 99) - (b.fin || 99)) || (a.no - b.no) : a.no - b.no);
   const rows = hs.map(h => `<tr class="${h.scr ? 'scr' : ''}${done && h.fin && h.fin <= 3 ? ' top3' : ''}">${done ? `<td class="fin">${h.fin || (h.scr ? '消' : '-')}</td>` : ''}` +
     `<td>${uChip(h.no, r.gateUnknown ? 0 : h.w)}</td><td class="mk">${esc(h.mk || '')}</td>` +
     `<td class="nm"><b>${esc(h.name || '')}</b><div class="sub">${esc(h.sa || '')}・${h.kg ?? '-'}kg・${esc(h.jk || '')}${h.jkb ? `（${esc(h.jkb)}から）` : ''}${h.wt ? `・${h.wt}kg${h.wd != null && h.wd !== '' ? `（${h.wd > 0 ? '+' : ''}${h.wd}）` : ''}` : ''}</div></td>` +
@@ -250,13 +300,23 @@ async function showDay(d) {
   showShobu(d); showWin5(d);
   const { log, res } = await dayData(d);
   const pv = S.pdByDay && S.pdByDay[d] ? (await readJson(S.pdByDay[d]) || {}) : {};
+  S.dayView = { d, log, res, pv };
+  renderDay();
+}
+function renderDay() {   // 合計はその日の全場。買った馬券と結果は開催場のタブで分ける（2026/10）
+  const { log, res, pv } = S.dayView || { log: {}, res: {}, pv: {} };
   const rk = (a, b) => (+a.split('-')[5] - +b.split('-')[5]) || a.localeCompare(b);
-  const extra = Object.keys(res).filter(k => !log[k] && /^\d{4}-\d{4}-/.test(k) && (res[k].order || []).length).sort(rk);
-  const rows = Object.entries(log).map(([k, e]) => ({ k, e, s: settle(e, res[k]) }))
-    .sort((a, b) => (+a.k.split('-')[5] - +b.k.split('-')[5]) || a.k.localeCompare(b.k));   // レース番号の順（同じ番号は競馬場の順）
-  const t = rows.reduce((a, r) => ({ cost: a.cost + r.s.cost, ret: a.ret + r.s.ret, n: a.n + (r.s.bought ? 1 : 0), hit: a.hit + (r.s.ret > 0 ? 1 : 0), open: a.open + (r.s.bought && !r.s.done ? 1 : 0) }), { cost: 0, ret: 0, n: 0, hit: 0, open: 0 });
+  const tk = k => trackOf(k, ((log[k] || {}).plan || {}).track || (res[k] || {}).track || (pv[k] || {}).track);
+  const extraAll = Object.keys(res).filter(k => !log[k] && /^\d{4}-\d{4}-/.test(k) && (res[k].order || []).length);
+  const all = Object.entries(log).map(([k, e]) => ({ k, e, s: settle(e, res[k]) }));
+  const t = all.reduce((a, r) => ({ cost: a.cost + r.s.cost, ret: a.ret + r.s.ret, n: a.n + (r.s.bought ? 1 : 0), hit: a.hit + (r.s.ret > 0 ? 1 : 0), open: a.open + (r.s.bought && !r.s.done ? 1 : 0) }), { cost: 0, ret: 0, n: 0, hit: 0, open: 0 });
   $('#dayTotal').innerHTML = [['購入', yen(t.cost)], ['払戻', yen(t.ret)], ['収支', `<span class="${cls(t.ret - t.cost)}">${sgn(t.ret - t.cost)}</span>`], ['的中', `${t.hit}/${t.n}R` + (t.open ? `（結果待ち${t.open}）` : '')]]
     .map(([k, v]) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+  const badge = {}; for (const r of all) if (r.s.bought) { const n = tk(r.k); badge[n] = (badge[n] || 0) + 1; }   // タブの数字＝その場で買ったレース数
+  const v = drawVenues('#dayVenues', venueList([...all.map(r => [r.k, tk(r.k)]), ...extraAll.map(k => [k, tk(k)])]), badge);
+  const rows = all.filter(r => tk(r.k) === v).sort((a, b) => rk(a.k, b.k));   // レース番号の順
+  const extra = extraAll.filter(k => tk(k) === v).sort(rk);
+  $('#racesHead').hidden = !rows.length; $('#racesHead').textContent = `自動投票で買った馬券（${v}）`;
   $('#races').innerHTML = rows.length ? rows.map(({ k, e, s }) => {
     const p = e.plan || {}, groups = {};
     for (const b of p.bets || []) { const g = groups[b.title || b.type] || (groups[b.title || b.type] = { n: 0, yen: 0, hit: 0 }); g.n++; g.yen += +b.yen || 0; if (s.hits.includes(b)) g.hit += ((((res[k] || {}).payout || {})[b.type] || {})[b.key] || 0) * Math.floor((+b.yen || 0) / 100); }
@@ -266,9 +326,10 @@ async function showDay(d) {
       <div class="meta">${p.time ? esc(p.time) + ' 発走・' : ''}${e.at ? esc(e.at) + ' 判断' : ''}${r && r.result ? '・結果 ' + esc(r.result) : ''}${(p.top || []).length ? '・本命 ' + p.top.slice(0, 2).map(h => `${h.no}${esc(h.name)}`).join('／') : ''}</div>
       ${Object.keys(groups).length ? `<div class="bets">${Object.entries(groups).map(([ti, g]) => `<div><span>${esc(ti)}（${g.n}点）</span><span>${yen(g.yen)}${g.hit ? ` → <b class="plus">${yen(g.hit)}</b>` : ''}</span></div>`).join('')}</div>` : ''}
       ${e.error ? `<div class="meta minus">${esc(e.error)}</div>` : ''}</div>`;
-  }).join('') + (extra.length ? `<h3>${rows.length ? 'そのほかのレースの結果' : 'この日のレースの結果'}</h3>` + extra.map(k => resultCard(k, res[k], pv[k])).join('') : '')
-    : extra.length ? '<h3>この日のレースの結果</h3>' + extra.map(k => resultCard(k, res[k], pv[k])).join('') : '<p class="empty">この日の記録はありません</p>';
+  }).join('') + (extra.length ? `<h3>そのほかのレースの結果（${esc(v)}）</h3>` + extra.map(k => resultCard(k, res[k], pv[k])).join('') : '')
+    : extra.length ? `<h3>レースの結果（${esc(v)}）</h3>` + extra.map(k => resultCard(k, res[k], pv[k])).join('') : '<p class="empty">この日の記録はありません</p>';
 }
+onVenue('#dayVenues', renderDay);
 
 async function loadPL() {
   const days = S.logs.map(f => f.name.slice(0, 8)).slice(0, 14);
@@ -291,20 +352,29 @@ async function loadPred(viewId) {
   const pid = await folder('predict', viewId);
   const fs = (await list(pid)).filter(f => /^\d{8}\.json$/.test(f.name)).sort((a, b) => b.name.localeCompare(a.name));
   S.pd = fs; S.pdByDay = Object.fromEntries(fs.map(f => [f.name.slice(0, 8), f.id]));
-  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }).replace(/-/g, '');
+  const today = todayStr();
   const pick = fs.find(f => f.name.slice(0, 8) === today) || fs.find(f => f.name.slice(0, 8) > today) || fs[0];
-  $('#pdDay').innerHTML = fs.map(f => `<option value="${f.id}"${pick && f.id === pick.id ? ' selected' : ''}>${ymd(f.name.slice(0, 8))}${f.name.slice(0, 8) === today ? '（今日）' : ''}</option>`).join('') || '<option>予想の写しなし</option>';
+  $('#pdDay').innerHTML = fs.map(f => `<option value="${f.id}"${pick && f.id === pick.id ? ' selected' : ''}>${ymdw(f.name.slice(0, 8))}${f.name.slice(0, 8) === today ? '・今日' : ''}</option>`).join('') || '<option>予想の写しなし</option>';
   if (pick) showPred(pick.id, pick.name.slice(0, 8)); else $('#pred').innerHTML = '<p class="empty">まだ予想の写しがありません（家のパソコンで GATE IN を新しい版で起動すると、開催日に置かれます）</p>';
 }
 $('#pdDay').addEventListener('change', e => { const f = (S.pd || []).find(x => x.id === e.target.value); if (f) showPred(f.id, f.name.slice(0, 8)); });
 async function showPred(id, d) {
-  const v = await readJson(id) || {};
+  const PD = await readJson(id) || {};
   const RES = S.resFiles && S.resFiles[d] ? (await readJson(S.resFiles[d]) || {}) : {};
+  S.pdView = { d, PD, RES };
+  renderPred();
+}
+onVenue('#pdVenues', renderPred);
+function renderPred() {   // 開催場のタブで分ける（2026/10）
+  const { d, PD, RES } = S.pdView || {};
+  if (!d) return;
   const pre = `${d.slice(0, 4)}-${d.slice(4)}-`;
-  const rows = Object.entries(v).filter(([k]) => k.startsWith(pre))
+  const all = Object.entries(PD).filter(([k]) => k.startsWith(pre));
+  const ven = drawVenues('#pdVenues', venueList(all.map(([k, r]) => [k, r.track])));
+  const rows = all.filter(([k, r]) => trackOf(k, r.track) === ven)
     .sort((a, b) => (+a[0].split('-')[5] - +b[0].split('-')[5]) || a[0].localeCompare(b[0]));
   const nAb = rows.filter(([, r]) => r.by === '自動投票').length;
-  $('#pdTop').innerHTML = rows.length ? `<p class="sub">${rows.length}R（締切前に最終判断した予想 ${nAb}R・それ以外は朝〜発走20分前の予想）。家のパソコンが計算したものの写しです。</p>` : '';
+  $('#pdTop').innerHTML = rows.length ? `<p class="sub">${esc(ven)}の予想 ${rows.length}レース（締切前に最終判断した予想 ${nAb}レース・それ以外は朝〜発走20分前の予想）。家のパソコンが計算したものの写しです。</p>` : '';
   const PJ = { S: 'スロー', M: 'ミドル', H: 'ハイ' };
   $('#pred').innerHTML = rows.length ? rows.map(([k, r]) => {
     const hs = r.horses || [], pc = r.pace ? Object.entries(r.pace).sort((a, b) => b[1] - a[1])[0] : null;
@@ -328,7 +398,7 @@ async function loadReview(viewId) {
   S.rv = fs.map(f => ({ ...f }));
   const tf = (await list(rvId)).find(f => f.name === 'total.json');
   S.total = tf ? await readJson(tf.id) : null;
-  $('#rvDay').innerHTML = fs.map(f => `<option value="${f.id}">${ymd(f.name.slice(0, 8))}</option>`).join('') || '<option>反省会の記録なし</option>';
+  $('#rvDay').innerHTML = fs.map(f => `<option value="${f.id}">${ymdw(f.name.slice(0, 8))}</option>`).join('') || '<option>反省会の記録なし</option>';
   if (fs.length) showReview(fs[0].id);
 }
 $('#rvDay').addEventListener('change', e => showReview(e.target.value));

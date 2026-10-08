@@ -2,12 +2,16 @@
 /* 見やすさ重視（2026/10）：文字を濃く・枠線をはっきり・ボタンや選択中の状態をくっきり */
 :root {
   --bg: #e7ebf0; --card: #ffffff; --ink: #0d131a; --muted: #3f4a56; --line: #aeb8c4; --line2: #d3d9e0;
-  --accent: #8a5a00; --accentbg: #f2b632; --win: #087a3c; --lose: #b42318; --chip: #e0e6ed; --head: #dce3eb; --blue: #1f5fd1;
+  --accent: #8a5a00; --accentbg: #f2b632; --win: #087a3c; --lose: #b42318; --chip: #e0e6ed; --head: #dce3eb; --blue: #1f5fd1; --onblue: #ffffff;
 }
+/* 表示の色：自動（スマホの設定に合わせる）／ライト／ダーク を選べる（2026/10） */
+:root { color-scheme: light; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #0a0f15; --card: #151d27; --ink: #f3f6f9; --muted: #b9c4d0; --line: #45556a; --line2: #2b3747;
-          --accent: #ffc94d; --accentbg: #f2b632; --win: #4ee495; --lose: #ff7b6c; --chip: #263445; --head: #1f2a37; --blue: #7fb0ff; }
+  :root:not([data-theme="light"]) { color-scheme: dark; --bg: #0a0f15; --card: #151d27; --ink: #f3f6f9; --muted: #b9c4d0; --line: #45556a; --line2: #2b3747;
+          --accent: #ffc94d; --accentbg: #f2b632; --win: #4ee495; --lose: #ff7b6c; --chip: #263445; --head: #1f2a37; --blue: #7fb0ff; --onblue: #0a0f15; }
 }
+:root[data-theme="dark"] { color-scheme: dark; --bg: #0a0f15; --card: #151d27; --ink: #f3f6f9; --muted: #b9c4d0; --line: #45556a; --line2: #2b3747;
+          --accent: #ffc94d; --accentbg: #f2b632; --win: #4ee495; --lose: #ff7b6c; --chip: #263445; --head: #1f2a37; --blue: #7fb0ff; --onblue: #0a0f15; }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'Noto Sans JP', sans-serif; font-size: 16px; line-height: 1.55; -webkit-text-size-adjust: 100%; }
 body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
@@ -65,9 +69,16 @@ h3 { font-size: 16px; font-weight: 800; margin: 18px 0 10px; padding-left: 9px; 
 .w7 { background: #ff8a00; color: #111; }
 .w8 { background: #ff6fa5; color: #111; }
 /* 出馬表 */
-.venues { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
-.venues button { font: inherit; font-size: 15px; font-weight: 700; padding: 6px 14px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); color: var(--ink); }
-.venues button.on { background: var(--blue); color: #fff; border-color: var(--blue); }
+/* 開催場のタブ（開催日・出馬表・予想で共通）：下へ読んでいくと画面の上に貼りつく（2026/10） */
+.venues { display: flex; margin: 0 0 12px; border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); }
+.venues.sticky { position: sticky; top: var(--toph, 60px); z-index: 4; box-shadow: 0 3px 8px rgba(0,0,0,.14); }
+.venues button { flex: 1 1 0; min-width: 0; font: inherit; font-size: 16px; font-weight: 800; padding: 10px 4px; border: 0; border-left: 1.5px solid var(--line); background: var(--card); color: var(--ink); white-space: nowrap; }
+.venues button:first-child { border-left: 0; }
+.venues button.on { background: var(--blue); color: var(--onblue); }
+.venues button i { font-style: normal; font-size: 12px; font-weight: 800; margin-left: 5px; padding: 0 6px; border-radius: 99px; background: var(--accentbg); color: #111; vertical-align: 2px; }
+.seg { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; flex-wrap: wrap; font-size: 13px; color: var(--muted); font-weight: 700; }
+.seg button { font: inherit; font-size: 13px; font-weight: 700; padding: 4px 12px; border-radius: 99px; border: 1.5px solid var(--line); background: var(--card); color: var(--ink); }
+.seg button.on { background: var(--ink); color: var(--card); border-color: var(--ink); }
 details.rc { background: var(--card); border: 1.5px solid var(--line); border-radius: 12px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.08); overflow: hidden; }
 details.rc > summary { list-style: none; cursor: pointer; padding: 12px 14px; display: flex; gap: 10px; align-items: center; }
 details.rc > summary::-webkit-details-marker { display: none; }
@@ -96,4 +107,7 @@ details.rc[open] > summary { border-bottom: 2px solid var(--line); }
 .pay td.k { text-align: left; font-weight: 700; }
 .pay td.y { font-weight: 800; }
 .note2 { font-size: 13px; color: var(--muted); padding: 8px 14px 12px; }
-@media (prefers-color-scheme: dark) { .w2 { border-color: #8a96a3; } .w1 { border-color: #fff; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .w2 { border-color: #8a96a3; } :root:not([data-theme="light"]) .w1 { border-color: #fff; } }
+:root[data-theme="dark"] .w2 { border-color: #8a96a3; } :root[data-theme="dark"] .w1 { border-color: #fff; }
+.themeb { font: inherit; font-size: 13px; font-weight: 700; border: 1.5px solid var(--line); background: var(--card); color: var(--ink); border-radius: 99px; padding: 5px 12px; white-space: nowrap; }
+.topr { display: flex; align-items: center; gap: 10px; }
