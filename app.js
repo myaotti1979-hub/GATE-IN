@@ -285,11 +285,36 @@ function renderCardList() {
   const rs = R.filter(r => trackOf(r.k, r.track) === v).sort((a, b) => a.raceNo - b.raceNo);
   const nDone = rs.filter(r => r.result).length, allDone = rs.length > 0 && nDone === rs.length;
   $('#cdTop').innerHTML = (made ? `<p class="sub">${allDone ? `レース確定後の写しです（${esc(made)}）。オッズ・人気は最終のものです。` : `${esc(made)} 時点の写しです（家のパソコンが、当日の発走前は10分ごと・先の日は1時間ごとに更新）。オッズ・馬体重は写した時点のものです。`}</p>` : '') +
-    (nDone ? `<div class="seg"><span>確定したレースの並び</span><button type="button" data-s="no" class="${S.cdSort === 'no' ? 'on' : ''}">馬番順</button><button type="button" data-s="fin" class="${S.cdSort === 'fin' ? 'on' : ''}">着順</button></div>` : '');
+    (nDone ? `<div class="seg"><span>確定したレースの並び</span><button type="button" data-s="no" class="${S.cdSort === 'no' ? 'on' : ''}">馬番順</button><button type="button" data-s="fin" class="${S.cdSort === 'fin' ? 'on' : ''}">着順</button></div>` : '') +
+    (rs.some(r => (r.horses || []).some(h => h.tc)) ? `<div class="seg"><span>調教の前走比</span><button type="button" data-tc="1" class="${S.tcOn ? 'on' : ''}">出す</button><button type="button" data-tc="0" class="${S.tcOn ? '' : 'on'}">出さない</button></div>` : '');
   $('#cards').innerHTML = rs.length ? rs.map(cardHtml).join('') : '<p class="empty">この日の出馬表はありません</p>';
 }
 onVenue('#cdVenues', renderCardList);
-$('#cdTop').addEventListener('click', e => { const b = e.target.closest('button[data-s]'); if (!b) return; S.cdSort = b.dataset.s; storeSet('gatein_cdsort', S.cdSort); renderCardList(); });
+$('#cdTop').addEventListener('click', e => {
+  const t = e.target.closest('button[data-tc]'); if (t) { S.tcOn = t.dataset.tc === '1'; storeSet('gatein_tc', S.tcOn ? '1' : '0'); renderCardList(); return; }
+  const b = e.target.closest('button[data-s]'); if (!b) return; S.cdSort = b.dataset.s; storeSet('gatein_cdsort', S.cdSort); renderCardList();
+});
+// 調教の前走比（2026/10/10 夜）：今回・前走時・2走前時の 東スポの最終追い切り（コース・強さ・評価）と JRA-VAN の速い追い切りの点・28日の本数・そのときの着順
+S.tcOn = storeGet('gatein_tc') !== '0';
+function tcRow(h, nc) {
+  const c = h.tc; if (!S.tcOn || !c || c.length < 2) return '';
+  const cur = c[0], cp = cur.ts ? cur.ts[5] : null;
+  const line = (o, i) => {
+    const lab = o.l === '今回' ? '今回' : o.l + '時';
+    const f = o.r ? +o.r[1] : 0;
+    const res = o.r ? `<span class="tr">${esc(o.r[0] || '')} <b class="${f === 1 ? 'f1' : f && f <= 3 ? 'f3' : ''}">${o.r[1] ?? '-'}着</b></span>` : '';
+    const pd = i && cp != null && o.ts && o.ts[5] != null ? cp - o.ts[5] : null;
+    const ts = o.ts ? `<span>${esc(o.ts[0] || '')} ${esc(o.ts[1] || '')}${esc(o.ts[2] || '')} ${esc(String(o.ts[3] || '').split('-').slice(-2).join('-'))} ${esc(String(o.ts[4] || '').replace(/\s*\(\d+\)/, ''))} <b class="${pd == null ? '' : pd > 0 ? 'up' : pd < 0 ? 'dn' : ''}">評${o.ts[5] ?? '-'}</b></span>` : '<span class="sub">東スポなし</span>';
+    const same = i && o.wd && o.wd === cur.wd;
+    const d = i && !same && cur.s != null && o.s != null ? cur.s - o.s : null;
+    const sc = o.s == null ? '<span class="sub">点－</span>' : `<span class="${d == null ? '' : d >= 0.5 ? 'up' : d <= -0.5 ? 'dn' : ''}">点${o.s > 0 ? '+' : ''}${Number(o.s).toFixed(1)}</span>`;
+    return `<div class="tcl"><span class="lb">${lab}</span>${ts}${sc}<span class="sub">${o.n ?? 0}本</span>${same ? '<span class="sub">今回と同じ追い切り</span>' : ''}${res}</div>`;
+  };
+  // 調教の量と質が前走時より上（28日の追い切り日数＋3日以上・点＋0.5以上・前走から120日以内）：過去11年で3着内がオッズの見込みの1.07倍（10番人気以下 1.17倍）
+  const p1 = c[1], dd = (x, y) => { const f = v => new Date(+String(v).slice(0, 4), +String(v).slice(4, 6) - 1, +String(v).slice(6, 8)); return (f(x) - f(y)) / 864e5; };
+  const up = cur.s != null && p1.s != null && cur.n != null && p1.n != null && cur.wd && p1.wd && cur.n - p1.n >= 3 && cur.s - p1.s >= 0.5 && (!cur.d || !p1.d || dd(cur.d, p1.d) <= 120);
+  return `<tr class="tcx"><td colspan="${nc}">${up ? '<div class="tcu">調教の量と質が前走時より上<span class="sub">（過去11年で人気より来た：3着内 1.07倍）</span></div>' : ''}${c.map(line).join('')}</td></tr>`;
+}
 function cardHtml(r) {
   const done = !!r.result, P = v => v == null ? '-' : Math.round(v * 100) + '%';
   const st = done ? '<span class="st done">確定</span>' : r.gateUnknown ? '<span class="st gate">枠順未定</span>' : '<span class="st pre">発走前</span>';
@@ -298,7 +323,7 @@ function cardHtml(r) {
     `<td>${uChip(h.no, r.gateUnknown ? 0 : h.w)}</td><td class="mk">${esc(h.mk || '')}</td>` +
     `<td class="nm"><b>${esc(h.name || '')}</b><div class="sub">${esc(h.sa || '')}・${h.kg ?? '-'}kg・${esc(h.jk || '')}${h.jkb ? `（${esc(h.jkb)}から）` : ''}${h.wt ? `・${h.wt}kg${h.wd != null && h.wd !== '' ? `（${h.wd > 0 ? '+' : ''}${h.wd}）` : ''}` : ''}</div></td>` +
     `<td><span class="odds">${h.odds ? Number(h.odds).toFixed(1) : '-'}</span><div class="sub">${h.pop ? h.pop + '人気' : ''}</div></td>` +
-    `<td>${P(h.f3)}<div class="sub">勝${P(h.win)}</div></td></tr>`).join('');
+    `<td>${P(h.f3)}<div class="sub">勝${P(h.win)}</div></td></tr>` + tcRow(h, done ? 6 : 5)).join('');
   const head = `<tr>${done ? '<th>着</th>' : ''}<th>馬番</th><th></th><th style="text-align:left">馬名・騎手</th><th>オッズ</th><th>3着内</th></tr>`;
   return `<details class="rc"${S.cdOpen === r.k ? ' open' : ''} data-k="${esc(r.k)}"><summary><span class="rn">${r.raceNo}R</span><span class="ti"><b>${esc(r.name || '')}</b><span>${esc(r.time || '')}${r.time ? ' 発走・' : ''}${esc(r.surface || '')}${r.dist || ''}m・${(r.horses || []).filter(h => !h.scr).length}頭${r.going ? '・' + esc(r.going) : ''}</span></span>${st}</summary>` +
     `<div class="tablewrap" style="margin:0;border:0;border-radius:0"><table class="ct">${head}${rows}</table></div>` +
@@ -380,13 +405,25 @@ function renderDay() {   // 合計はその日の全場。買った馬券と結�
   const extra = extraAll.filter(k => tk(k) === v).sort(rk);
   $('#racesHead').hidden = !rows.length; $('#racesHead').textContent = `自動投票で買った馬券（${v}）`;
   $('#races').innerHTML = rows.length ? rows.map(({ k, e, s }) => {
-    const p = e.plan || {}, groups = {};
-    for (const b of p.bets || []) { const g = groups[b.title || b.type] || (groups[b.title || b.type] = { n: 0, yen: 0, hit: 0 }); g.n++; g.yen += +b.yen || 0; if (s.hits.includes(b)) g.hit += ((((res[k] || {}).payout || {})[b.type] || {})[b.key] || 0) * Math.floor((+b.yen || 0) / 100); }
-    const r = res[k];
-    return `<div class="race"><div class="h"><div class="t">${esc(p.track || '')}${p.raceNo || ''}R ${esc(p.name || e.name || '')}<span class="chip${s.ret > 0 ? ' hit' : ''}">${esc(e.status || '')}</span></div>
+    const p = e.plan || {}, r = res[k], pay = ((r || {}).payout) || {};
+    // 印は、家のPCが締切前に判断したときの予想（検証後の勝率の順）から（2026/10/10 ご指摘：シミュの勝率の順の「本命」が◎と食い違って紛らわしい）
+    const PR = pv[k], mk = PR && (PR.horses || []).length ? PR.horses.slice(0, 3).map((h, i) => `${MARKS[i]}${h.no}${esc(h.name || '')}`).join(' ') : '';
+    // 買い目：買ったレースだけ金額を出す。勝負レースWは組番まで（ワイド 1-13 など）。見送りは理由だけ
+    let bets = '';
+    if (s.bought) {
+      const TJ = { tan: '単勝', fuku: '複勝', umaren: '馬連', wide: 'ワイド', umatan: '馬単', sanfuku: '3連複', santan: '3連単', waku: '枠連' };
+      const won = b => ((pay[b.type] || {})[b.key] || 0) * Math.floor((+b.yen || 0) / 100);
+      const W = (p.bets || []).filter(b => b.title === '勝負レースW'), groups = {};
+      for (const b of (p.bets || []).filter(b => b.title !== '勝負レースW')) { const g = groups[b.title || b.type] || (groups[b.title || b.type] = { n: 0, yen: 0, hit: 0 }); g.n++; g.yen += +b.yen || 0; g.hit += won(b); }
+      bets = W.map(b => `<div><span>勝負レースW　<b>${esc(TJ[b.type] || b.type)} ${esc(b.key)}</b></span><span>${yen(+b.yen || 0)}${won(b) ? ` → <b class="plus">${yen(won(b))}</b>` : ''}</span></div>`).join('') +
+        Object.entries(groups).map(([ti, g]) => `<div><span>${esc(ti)}（${g.n}点）</span><span>${yen(g.yen)}${g.hit ? ` → <b class="plus">${yen(g.hit)}</b>` : ''}</span></div>`).join('');
+    }
+    const why = !s.bought && e.reason ? `<div class="meta sub">${esc(String(e.reason).replace(/^勝負レースW：/, ''))}</div>` : '';
+    return `<div class="race${s.bought ? '' : ' skipped'}"><div class="h"><div class="t">${esc(p.track || '')}${p.raceNo || ''}R ${esc(p.name || e.name || '')}<span class="chip${s.ret > 0 ? ' hit' : ''}">${esc(e.status || '')}</span></div>
       <div class="${cls(s.ret - s.cost)}">${s.bought ? (s.done ? sgn(s.ret - s.cost) : '結果待ち') : ''}</div></div>
-      <div class="meta">${p.time ? esc(p.time) + ' 発走・' : ''}${e.at ? esc(e.at) + ' 判断' : ''}${r && r.result ? '・結果 ' + esc(r.result) : ''}${(p.top || []).length ? '・本命 ' + p.top.slice(0, 2).map(h => `${h.no}${esc(h.name)}`).join('／') : ''}</div>
-      ${Object.keys(groups).length ? `<div class="bets">${Object.entries(groups).map(([ti, g]) => `<div><span>${esc(ti)}（${g.n}点）</span><span>${yen(g.yen)}${g.hit ? ` → <b class="plus">${yen(g.hit)}</b>` : ''}</span></div>`).join('')}</div>` : ''}
+      <div class="meta">${p.time ? esc(p.time) + ' 発走・' : ''}${e.at ? esc(e.at) + ' 判断' : ''}${r && r.result ? '・結果 ' + esc(r.result) : ''}</div>
+      ${mk ? `<div class="meta">${mk}</div>` : ''}${why}
+      ${bets ? `<div class="bets">${bets}</div>` : ''}
       ${e.error ? `<div class="meta minus">${esc(e.error)}</div>` : ''}</div>`;
   }).join('') + (extra.length ? `<h3>そのほかのレースの結果（${esc(v)}）</h3>` + extra.map(k => resultCard(k, res[k], pv[k])).join('') : '')
     : extra.length ? `<h3>レースの結果（${esc(v)}）</h3>` + extra.map(k => resultCard(k, res[k], pv[k])).join('') : '<p class="empty">この日の記録はありません</p>';
@@ -413,7 +450,7 @@ const MARKS = ['◎', '○', '▲', '△', '△'];
 // ===== 予想タブ（2026/10/10）：全頭／上位5頭・見出しをタップで並び替え（もう一度で逆順）・発走時刻・勝負レースW・パドック診断（AI） =====
 const PD_COLS = {   // [値の取り出し, 最初のタップの向き（1＝小さい順・-1＝大きい順）]
   mk: [x => x.mi < 5 ? x.mi : null, 1], no: [x => x.h.no, 1], win: [x => x.h.win, -1], fuku: [x => x.h.fuku, -1], pop: [x => x.h.pop || null, 1],
-  pdk: [x => !x.pk ? null : x.pk.rubric === 'v3' ? (x.pk.rank != null ? x.pk.rank : null) : ({ A: 1, B: 2, C: 3, D: 4 }[x.pk.overall] || null), 1],
+  pdk: [x => !x.pk ? null : (x.pk.rubric === 'v3' || x.pk.rubric === 'v4') ? (x.pk.rank != null ? x.pk.rank : null) : ({ A: 1, B: 2, C: 3, D: 4 }[x.pk.overall] || null), 1],
   fin: [x => x.fin || null, 1]
 };
 S.pdSort = (() => { try { const v = JSON.parse(storeGet('gatein_pdsort') || 'null'); return v && PD_COLS[v.k] ? v : null; } catch { return null; } })();
@@ -422,28 +459,74 @@ S.pdCache = {};
 // パドック診断（AI）：v3＝9項目を1〜10点（大きいほど良い・5＝ふつう）・合計90点満点・レースの中での順位と偏差値。v2（10/10の午前まで）は A〜D
 const PDK_ITEM3 = [['spirit', '気合い'], ['calm', '落ち着き'], ['muscle', '張り'], ['coat', '毛ヅヤ'], ['stride', '踏み込み'], ['gait', '歩様'], ['neck', '首の使い方'], ['focus', '集中'], ['build', '仕上がり']];
 const PDK_WARN = ['発汗多い', '入れ込み', '制御できない', '二人引き', '外傷・腫れ', '馬っ気'];
+// v4（2026/10/10 夜〜）：6項目（歩様・制御・首は1〜5で3＝ふつう、テンションは-3〜+3で0＝適度、馬体は-2〜+2で0＝ちょうど、毛ヅヤは1〜3）。100点満点（ふつう80）。所見は 重・中・情報
+const PDK_ITEM4 = [['gait', '歩様'], ['control', '制御'], ['tension', 'テンション'], ['neck', '首'], ['body', '馬体'], ['coat', '毛ヅヤ']];
+const PDK_BODY = { '-2': '細い', '-1': 'やや細', '0': 'ちょうど', '1': 'やや太', '2': '太い' }, PDK_COAT = { 1: '悪い', 2: 'ふつう', 3: '良い' };
+const pk4Txt = (k, v) => v == null ? '－' : k === 'tension' ? (v > 0 ? '+' + v : String(v)) : k === 'body' ? PDK_BODY[String(v)] || String(v) : k === 'coat' ? PDK_COAT[v] || String(v) : String(v);
+function pk4Cls(pk, k, v) {
+  if (v == null) return ' na';
+  if (k === 'tension') { const b = pk.band || [-2, 1]; return v < b[0] || v > b[1] ? ' lo' : ''; }
+  if (k === 'body') return Math.abs(v) >= 2 ? ' lo' : '';
+  if (k === 'coat') return v <= 1 ? ' lo' : v >= 3 ? ' hi' : '';
+  return v <= 2 ? ' lo' : v >= 4 ? ' hi' : '';
+}
+// 前走比（2026/10/10 夜）：同じ馬の前回のパドック診断（200日以内）との差。良くなった＝緑・悪くなった＝赤
+function pkPrevDir(pk, k, a, b) {
+  if (a == null || b == null || a === b) return 0;
+  if (k === 'tension') { const B = pk.band || [-2, 1], o = v => Math.max(0, B[0] - v, v - B[1]); return o(b) < o(a) ? 1 : o(b) > o(a) ? -1 : 0; }
+  if (k === 'body') return Math.abs(b) < Math.abs(a) ? 1 : Math.abs(b) > Math.abs(a) ? -1 : 0;
+  return b > a ? 1 : -1;
+}
+function pkPrev4(pk) {
+  const p = pk && pk.prev; if (!p) return '';
+  const pv = p.vals || {}, cv = pk.vals || {}, parts = [];
+  for (const [k, nm] of PDK_ITEM4) { const a = pv[k], b = cv[k]; if (a != null && b != null && a !== b) parts.push([`${nm} ${pk4Txt(k, a)}→${pk4Txt(k, b)}`, pkPrevDir(pk, k, a, b)]); }
+  for (const f of p.new || []) parts.push([`新たに${f}`, -1]);
+  for (const f of p.gone || []) parts.push([`${f}が消えた`, 1]);
+  const d = p.date || '', yr = d.slice(0, 4) !== String(new Date().getFullYear()) ? d.slice(0, 4) + '/' : '';
+  const dt = p.dt;
+  return `<div class="pkp"><span class="h">前走比（${esc(yr)}${+d.slice(4, 6)}/${+d.slice(6, 8)} ${esc(p.race || '')}・${p.total ?? '-'}点${p.overall ? ' ' + esc(p.overall) : ''}）</span>` +
+    (parts.length ? parts.map(([t, c]) => `<span class="${c > 0 ? 'g' : c < 0 ? 'w' : ''}">${esc(t)}</span>`).join('') : '<span>変わりなし</span>') +
+    (dt ? `<span class="${dt > 0 ? 'g' : 'w'}">合計${dt > 0 ? '+' : ''}${dt}</span>` : '') + '</div>';
+}
+function pkDetail4(pk) {
+  const its = PDK_ITEM4.map(([k, nm]) => { const v = (pk.vals || {})[k]; return `<span class="pki${pk4Cls(pk, k, v)}"><i>${nm}</i><b>${esc(pk4Txt(k, v))}</b></span>`; }).join('');
+  const fl = (pk.flags || []).map(f => `<span class="${f.lv === '重' ? 'w' : f.lv === '中' ? 'm' : ''}">${esc(f.f)}${f.lv !== '情報' ? `（${esc(f.lv)}）` : ''}</span>`).join('') + (pk.gear || []).map(g => `<span>${esc(g)}</span>`).join('');
+  const cm = pk.cmp && pk.cmp.note && pk.score_by === '見比べ' ? pk.cmp.note : '';
+  return `<div class="pkh">パドック診断（AI${pk.score_by === '見比べ' ? '・全馬を見比べ' : ''}）<b>${pk.total ?? '-'}</b>/100点・総合 <b>${esc(pk.overall || '-')}</b> ${esc(pk.label || '')}${pk.rank != null ? `（${pk.rank}位/${pk.rank_n}頭）` : ''}</div>` +
+    `<div class="pkg">${its}</div>${fl ? `<div class="pkf">${fl}</div>` : ''}${pkPrev4(pk)}${cm ? `<div><b>${esc(cm)}</b></div>` : ''}<div>${esc(pk.comment || '')}</div>` +
+    `${pk.no_ok === false ? '<div class="sub">※ゼッケンの読み取りが馬番と違います（参考）</div>' : ''}` +
+    '<div class="sub">80点＝問題なし（悪い所を引いた点）。赤は減点になった値・緑は良い値。前走比は同じ馬の前回の診断との差（赤＝悪くなった・緑＝良くなった）。予想・買い目には入れていません</div>';
+}
 const pkv = v => v && typeof v === 'object' ? v.v : v;   // 写し（数字）でも元のファイル（{v:…}）でも
 function pdkTier(x) {
+  if (x.rubric === 'v4') return x.overall || 'B';
   const t = x.dev == null ? (x.overall || 'B') : x.dev >= 60 ? 'A' : x.dev >= 45 ? 'B' : x.dev >= 35 ? 'C' : 'D';
   return (x.notes || []).some(n => n === '入れ込み' || n === '制御できない') && (t === 'A' || t === 'B') ? 'C' : t;
 }
+const pkC = pk => pk && pk.cmp && pk.cmp.items ? pk.cmp : null;   // 見比べ（全馬を1回で見比べた点。2026/10/10 午後〜）
+const pkT = pk => { if (pk.rubric === 'v4') return pk.total; const C = pkC(pk); return C && C.total != null ? C.total : pk.total; };
 function pkCell(pk) {
   if (!pk) return '<span class="sub">-</span>';
-  if (pk.rubric === 'v3') return pk.total == null ? '<span class="sub">-</span>' : `<span class="pk pk-${pdkTier(pk)}">${pk.rank != null ? pk.rank + '位' : pk.total + '点'}</span><div class="sub">${pk.total}点</div>`;
+  if (pk.rubric === 'v3' || pk.rubric === 'v4') {
+    const p = pk.rubric === 'v4' ? pk.prev : null, mk = !p || p.dt == null ? '' : p.dt <= -5 || (p.new || []).length ? '<b class="pkdn">▼</b>' : p.dt >= 5 ? '<b class="pkup">▲</b>' : '';
+    return pkT(pk) == null ? '<span class="sub">-</span>' : `<span class="pk pk-${pdkTier(pk)}">${pk.rank != null ? pk.rank + '位' : pkT(pk) + '点'}</span><div class="sub">${pkT(pk)}点${mk}</div>`;
+  }
   return pk.overall ? `<span class="pk pk-${esc(pk.overall)}">${esc(pk.overall)}</span>` : '<span class="sub">-</span>';
 }
 function pkDetail(pk, h) {
+  if (pk.rubric === 'v4') return pkDetail4(pk);
   const fl = (pk.notes || []).map(n => `<span class="${PDK_WARN.includes(n) ? 'w' : ''}">${esc(n)}</span>`).join('') + (pk.gear || []).map(g => `<span>${esc(g)}</span>`).join('');
   const note = pk.no_ok === false ? '<div class="sub">※ゼッケンの読み取りが馬番と違います（参考）</div>' : '';
   if (pk.rubric !== 'v3') return `<div class="pkh">パドック診断（AI）<b>${esc(pk.overall || '-')}</b> ${esc(pk.label || '')}</div>${fl ? `<div class="pkf">${fl}</div>` : ''}<div>${esc(pk.comment || '')}</div>${note}`;
-  const vs = pk.vs || {};
+  const vs = pk.vs || {}, C = pkC(pk), src = C ? C.items : (pk.items || {});
   const bars = PDK_ITEM3.map(([k, nm]) => {
-    const v = pkv((pk.items || {})[k]), d = vs[k];
+    const v = pkv(src[k]), d = vs[k];
     return `<span class="pdn">${nm}</span><span class="pdbar${v == null ? '' : v <= 3 ? ' lo' : v >= 8 ? ' hi' : ''}">${v == null ? '' : `<i style="width:${v * 10}%"></i>`}</span>` +
       `<span class="pdv">${v == null ? '－' : v}${k === 'build' && pk.build_dir && pk.build_dir !== 'ちょうど' ? `<small>${esc(pk.build_dir)}</small>` : ''}${d != null && Math.abs(d) >= 1.5 ? `<small class="${d > 0 ? 'up' : 'dn'}">${d > 0 ? '▲' : '▼'}${Math.abs(d).toFixed(1)}</small>` : ''}</span>`;
   }).join('');
-  return `<div class="pkh">パドック診断（AI）合計 <b>${pk.total ?? '-'}</b>/90点${pk.dev != null ? `・偏差値${Math.round(pk.dev)}（${pk.rank}位/${pk.rank_n}頭）` : ''}</div>` +
-    `<div class="pkb">${bars}</div>${fl ? `<div class="pkf">${fl}</div>` : ''}<div>${esc(pk.comment || '')}</div>${note}` +
+  return `<div class="pkh">パドック診断（AI${C ? '・全馬を見比べ' : ''}）合計 <b>${pkT(pk) ?? '-'}</b>/90点${pk.dev != null ? `・偏差値${Math.round(pk.dev)}（${pk.rank}位/${pk.rank_n}頭）` : ''}</div>` +
+    `<div class="pkb">${bars}</div>${fl ? `<div class="pkf">${fl}</div>` : ''}${C && C.note ? `<div><b>${esc(C.note)}</b></div>` : ''}<div>${esc(pk.comment || '')}</div>${note}` +
     '<div class="sub">1〜10点（5＝ふつう）。3以下は赤・8以上は緑。▲▼はこのレースの平均との差。予想・買い目には入れていません</div>';
 }
 async function dayFile(kind, d) {   // その日のファイル（view/kind/d.json）。パドックは写しが無ければ元のファイル（GATEIN_data/paddock）を読む
