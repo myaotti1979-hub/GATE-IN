@@ -872,16 +872,29 @@ function pkPrevDir(pk, k, a, b) {
   if (k === 'body') return Math.abs(b) < Math.abs(a) ? 1 : Math.abs(b) > Math.abs(a) ? -1 : 0;
   return b > a ? 1 : -1;
 }
-function pkPrev4(pk) {
+// パドックAIのコメントの読みやすさ（2026/10/11 ご指摘：「ゼッケン1を確認。」「コマ1・3・7で」は見ている人には分からない）
+// 先頭のゼッケンの確かめと、コマ・歩様シートの番号（S1 など）を消す（記録はそのまま。表示だけ）
+function pdkCm(s) {
+  let t = String(s || '');
+  t = t.replace(/^\s*ゼッケン[^。]{0,24}。/, '');
+  t = t.replace(/[（(](?:コマ|S)[0-9０-９SＳ・、,〜～\-\s]*(?:[・、]\s*歩様シート)?[)）]/g, '').replace(/[（(]歩様シート[)）]/g, '');
+  t = t.replace(/コマ[0-9０-９][0-9０-９・、,〜～\-]*(?:を通じて|を通じ|では|でも|で|に|の|は|も|とも)?[、]?/g, '').replace(/[（(][0-9０-９・、,〜～\-\s]+[)）]/g, '');
+  t = t.replace(/(?<![A-Za-z])S[0-9]+(?:[・、〜～\-]S?[0-9]+)*(?:では|でも|で|に|の|は|も)?/g, '');
+  return t.replace(/^[\s、。]+/, '').replace(/[、]{2,}/g, '、').replace(/。、/g, '。').replace(/\s{2,}/g, ' ').trim();
+}
+const PDK_FLAG_TXT = { '判定できない': '判定できない項目が多い' };
+function pkPrev4(pk) {   // 2026/10/11 ご指摘：書き方を「悪くなった：…」のようにまとめ、点数は「75点 → 今回 40点（−35）」に
   const p = pk && pk.prev; if (!p) return '';
   const pv = p.vals || {}, cv = pk.vals || {}, parts = [];
-  for (const [k, nm] of PDK_ITEM4) { const a = pv[k], b = cv[k]; if (a != null && b != null && a !== b) parts.push([`${nm} ${pk4Txt(k, a)}→${pk4Txt(k, b)}`, pkPrevDir(pk, k, a, b)]); }
-  for (const f of p.new || []) parts.push([`新たに${f}`, -1]);
-  for (const f of p.gone || []) parts.push([`${f}が消えた`, 1]);
+  for (const [k, nm] of PDK_ITEM4) { const a = pv[k], b = cv[k]; if (a != null && b != null && a !== b) { const c = pkPrevDir(pk, k, a, b); parts.push([`${nm} ${pk4Txt(k, a)}→${pk4Txt(k, b)}`, c, c > 0 ? 'up' : c < 0 ? 'down' : 'chg']); } }
+  for (const f of p.new || []) parts.push([PDK_FLAG_TXT[f] || f, -1, 'newf']);
+  for (const f of p.gone || []) parts.push([PDK_FLAG_TXT[f] || f, 1, 'gonef']);
   const d = p.date || '', yr = d.slice(0, 4) !== String(new Date().getFullYear()) ? d.slice(0, 4) + '/' : '';
-  return `<div class="pkp"><span class="h">前走比（${esc(yr)}${+d.slice(4, 6)}/${+d.slice(6, 8)} ${esc(p.race || '')}・${p.total ?? '-'}点${p.overall ? ' ' + esc(p.overall) : ''}）</span>` +
-    (parts.length ? parts.map(([t, c]) => `<span class="${c > 0 ? 'g' : c < 0 ? 'w' : ''}">${esc(t)}</span>`).join('') : '<span>変わりなし</span>') +
-    (p.dt ? `<span class="${p.dt > 0 ? 'g' : 'w'}">合計${p.dt > 0 ? '+' : ''}${p.dt}</span>` : '') + '</div>';
+  const dt = p.dt != null ? p.dt : (pk.total != null && p.total != null ? pk.total - p.total : null);
+  const G = [['down', '悪くなった'], ['up', '良くなった'], ['chg', '変わった'], ['newf', '前走になかった注意'], ['gonef', '前走にあって消えた注意']];
+  const lines = G.map(([g, lab]) => { const L = parts.filter(x => x[2] === g); return L.length ? `<div class="ln"><i>${lab}：</i>${L.map(([t, c]) => `<span class="${c > 0 ? 'g' : c < 0 ? 'w' : ''}">${esc(t)}</span>`).join('・')}</div>` : ''; }).join('');
+  return `<div class="pkp"><span class="h">前走比（${esc(yr)}${+d.slice(4, 6)}/${+d.slice(6, 8)} ${esc(p.race || '')}）：${p.total ?? '-'}点${p.overall ? ' ' + esc(p.overall) : ''} → 今回 ${pk.total ?? '-'}点${pk.overall ? ' ' + esc(pk.overall) : ''}` +
+    (dt ? `（<span class="${dt > 0 ? 'g' : 'w'}">${dt > 0 ? '+' : '−'}${Math.abs(dt)}</span>）` : '') + '</span>' + (lines || '<div class="ln">項目の値は変わりなし</div>') + '</div>';
 }
 function pkAlt(pk) {   // 見比べ（全馬を並べた値・点数はこちら）と1頭ずつ見た値が違う項目（2026/10/11 ご質問：毛ヅヤが「良い」なのにコメントは「ふつう」）
   const out = {};
@@ -896,7 +909,7 @@ function pkDetail4(pk, o = {}) {   // o.noPrev：前回との比較を出さな�
   const fl = (pk.flags || []).map(f => `<span class="${f.lv === '重' ? 'w' : f.lv === '中' ? 'm' : ''}">${esc(f.f)}${f.lv !== '情報' ? `（${esc(f.lv)}）` : ''}</span>`).join('') + (pk.gear || []).map(g => `<span>${esc(g)}</span>`).join('');
   const cm = pk.cmp && pk.cmp.note && pk.score_by === '見比べ' ? pk.cmp.note : '';
   return `<div class="pkh">パドック診断（AI${pk.score_by === '見比べ' ? '・全馬を見比べ' : ''}）<b>${pk.total ?? '-'}</b>/100点・総合 <b>${esc(pk.overall || '-')}</b> ${esc(pk.label || '')}${pk.rank != null ? `（${pk.rank}位/${pk.rank_n}頭）` : ''}</div>` +
-    `<div class="pkg">${its}</div>${altL}${fl ? `<div class="pkf">${fl}</div>` : ''}${o.noPrev ? '' : pkPrev4(pk)}${cm ? `<div><b>見比べ：${esc(cm)}</b></div>` : ''}<div>${cm && pk.comment ? '1頭ずつ：' : ''}${esc(pk.comment || '')}</div>` +
+    `<div class="pkg">${its}</div>${altL}${fl ? `<div class="pkf">${fl}</div>` : ''}${o.noPrev ? '' : pkPrev4(pk)}${cm ? `<div><b>見比べ（点数はこちら）：${esc(cm)}</b></div>` : ''}<div>${cm && pk.comment ? '1頭ずつ（参考）：' : ''}${esc(pdkCm(pk.comment))}</div>` +
     `${pk.no_ok === false ? '<div class="sub">※ゼッケンの読み取りが馬番と違います（参考）</div>' : ''}` +
     (o.noPrev && pk.prev ? `<button type="button" class="gopk" data-gopdk="${esc(String(pk.no || ''))}">前回との比較を見る（パドックのタブ）▶</button>` : '') +
     (o.noNote ? '' : '<div class="sub">80点＝問題なし（悪い所を引いた点）。赤は減点になった値・緑は良い値。予想・買い目には入れていません</div>');
@@ -920,7 +933,7 @@ function pkDetail(pk, o = {}) {
   if (pk.rubric === 'v4') return pkDetail4(pk, o);
   const fl = (pk.notes || []).map(n => `<span class="${PDK_WARN.includes(n) ? 'w' : ''}">${esc(n)}</span>`).join('') + (pk.gear || []).map(g => `<span>${esc(g)}</span>`).join('');
   const note = pk.no_ok === false ? '<div class="sub">※ゼッケンの読み取りが馬番と違います（参考）</div>' : '';
-  if (pk.rubric !== 'v3') return `<div class="pkh">パドック診断（AI）<b>${esc(pk.overall || '-')}</b> ${esc(pk.label || '')}</div>${fl ? `<div class="pkf">${fl}</div>` : ''}<div>${esc(pk.comment || '')}</div>${note}`;
+  if (pk.rubric !== 'v3') return `<div class="pkh">パドック診断（AI）<b>${esc(pk.overall || '-')}</b> ${esc(pk.label || '')}</div>${fl ? `<div class="pkf">${fl}</div>` : ''}<div>${esc(pdkCm(pk.comment))}</div>${note}`;
   const vs = pk.vs || {}, C = pkC(pk), src = C ? C.items : (pk.items || {});
   const bars = PDK_ITEM3.map(([k, nm]) => {
     const v = pkv(src[k]), d = vs[k];
@@ -928,7 +941,7 @@ function pkDetail(pk, o = {}) {
       `<span class="pdv">${v == null ? '－' : v}${k === 'build' && pk.build_dir && pk.build_dir !== 'ちょうど' ? `<small>${esc(pk.build_dir)}</small>` : ''}${d != null && Math.abs(d) >= 1.5 ? `<small class="${d > 0 ? 'up' : 'dn'}">${d > 0 ? '▲' : '▼'}${Math.abs(d).toFixed(1)}</small>` : ''}</span>`;
   }).join('');
   return `<div class="pkh">パドック診断（AI${C ? '・全馬を見比べ' : ''}）合計 <b>${pkT(pk) ?? '-'}</b>/90点${pk.dev != null ? `・偏差値${Math.round(pk.dev)}（${pk.rank}位/${pk.rank_n}頭）` : ''}</div>` +
-    `<div class="pkb">${bars}</div>${fl ? `<div class="pkf">${fl}</div>` : ''}${C && C.note ? `<div><b>${esc(C.note)}</b></div>` : ''}<div>${esc(pk.comment || '')}</div>${note}` +
+    `<div class="pkb">${bars}</div>${fl ? `<div class="pkf">${fl}</div>` : ''}${C && C.note ? `<div><b>${esc(C.note)}</b></div>` : ''}<div>${esc(pdkCm(pk.comment))}</div>${note}` +
     '<div class="sub">1〜10点（5＝ふつう）。3以下は赤・8以上は緑。予想・買い目には入れていません</div>';
 }
 

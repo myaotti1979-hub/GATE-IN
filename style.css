@@ -292,6 +292,8 @@ tr.tcx td { padding: 0 8px 6px 8px; border-top: 0; text-align: left; }
 .pkp .h { width: 100%; font-weight: 700; }
 .pkp .w { color: var(--lose); font-weight: 700; }
 .pkp .g { color: var(--win); font-weight: 700; }
+.pkp .ln { width: 100%; }
+.pkp .ln i { font-style: normal; color: var(--muted); }
 .pkdn { color: var(--lose); margin-left: 2px; }
 .pkup { color: var(--win); margin-left: 2px; }
 
