@@ -121,7 +121,7 @@ const S = {
   idx: null, days: [], day: null, D: {}, status: null, hb: null, loadedAt: 0,
   tab: storeGet('gatein_tab2') || 'today', venue: storeGet('gatein_venue') || '', race: {},
   fold: jsonGet('gatein_vfold', {}), pdAll: storeGet('gatein_pdall2') === 'all', tcOn: storeGet('gatein_tc') !== '0', pl: null, rv: {},
-  rsub: storeGet('gatein_rsub') === 'pdk' ? 'pdk' : 'pred', pkSort: storeGet('gatein_pksort') === 'no' ? 'no' : 'rank'
+  rsub: storeGet('gatein_rsub') === 'pdk' ? 'pdk' : 'pred', pkSort: ['no', 'gap'].includes(storeGet('gatein_pksort')) ? storeGet('gatein_pksort') : 'rank'
 };
 const foldOpen = (id, def) => S.fold[id] == null ? !!def : !!S.fold[id];
 function fold(id, title, right, body, def, sub) {   // 折りたためる欄（開け閉めは覚える）
@@ -418,6 +418,7 @@ function renderToday() {
   h += `<div class="sh"><h2>買った馬券</h2><span>${bought.length}R</span></div>`;
   h += bought.length ? bought.map(x => boughtCard(X, x)).join('') : `<p class="empty">${today ? 'まだありません。買ったら、ここに券種・組・金額・結果が出ます' : 'この日に買った馬券はありません'}</p>`;
   if (fails.length) h += fails.map(x => `<div class="tl w"><div class="h"><div class="tm">${esc(x.m.time || '')}</div><div class="bds"><span class="bd w">買えなかった</span></div></div><div class="rn">${rTitle(x.m)}</div><div class="x minus">${esc(x.e.error)}</div></div>`).join('');
+  h += chkListHtml(X);
   // ---- 折りたたみ ----
   if (skips.length) {
     const why = {}; for (const x of skips) { const w = String(x.e.reason || '理由なし').replace(/^勝負レースW：/, '').replace(/（[^）]*）/g, ''); why[w] = (why[w] || 0) + 1; }
@@ -654,18 +655,54 @@ function paddockHtml(X, k) {
   let hs = ((c && c.horses) || []).filter(h => !h.scr).map(h => ({ no: +h.no, name: h.name, w: (c || {}).gateUnknown ? 0 : h.w, pop: h.pop }));
   if (!hs.length) hs = ((p && p.horses) || []).map(h => ({ no: +h.no, name: h.name, w: 0, pop: h.pop }));
   const fin = no => { const i = ((r && r.order) || []).indexOf(+no); return i >= 0 ? i + 1 : null; };
-  const rows = hs.map(h => ({ h, pk: PDK[String(h.no)] || null }));
-  rows.sort((a, b) => S.pkSort === 'no' ? a.h.no - b.h.no : ((a.pk && a.pk.rank != null ? a.pk.rank : 99) - (b.pk && b.pk.rank != null ? b.pk.rank : 99)) || a.h.no - b.h.no);
+  // 人気とパドックの順位の差（＋＝パドックのほうが人気より上）（2026/10/11 ご要望）
+  const popOf = h => +(h.pop || (pr[h.no] || {}).pop) || null;
+  const gapOf = (h, pk) => popOf(h) && pk && pk.rank != null ? popOf(h) - pk.rank : null;
+  const rows = hs.map(h => ({ h, pk: PDK[String(h.no)] || null })).map(x => ({ ...x, gap: gapOf(x.h, x.pk) }));
+  const byRank = (a, b) => ((a.pk && a.pk.rank != null ? a.pk.rank : 99) - (b.pk && b.pk.rank != null ? b.pk.rank : 99)) || a.h.no - b.h.no;
+  rows.sort((a, b) => S.pkSort === 'no' ? a.h.no - b.h.no : S.pkSort === 'gap' ? ((b.gap ?? -99) - (a.gap ?? -99)) || byRank(a, b) : byRank(a, b));
   const nPrev = rows.filter(x => x.pk && x.pk.prev).length;
-  const cards = rows.map(({ h, pk }) => {
-    const q = pr[h.no], f = done ? fin(h.no) : null;
-    const head = `<div class="pch">${uChip(h.no, h.w)}<b>${esc(h.name || (q && q.name) || '')}</b>${pk ? `<span class="pk pk-${pdkTier(pk)}">${pk.rank != null ? pk.rank + '位' : (pkT(pk) ?? '-') + '点'}</span>` : ''}</div>` +
-      `<div class="sub">${q ? `勝率 ${P(q.win)}・3着内 ${P(q.fuku)}` : ''}${h.pop ? `・${h.pop}人気` : ''}${f ? `・<b class="${f <= 3 ? 'plus' : ''}">${f}着</b>` : ''}</div>`;
+  const gapTxt = g => g == null ? '' : g >= 3 ? 'パドックが上' : g <= -3 ? 'パドックが下' : 'ほぼ同じ';
+  const gapCls = g => g == null ? '' : g >= 5 ? 'up2' : g >= 3 ? 'up' : g <= -5 ? 'dn2' : g <= -3 ? 'dn' : '';
+  const nm = h => `${h.no} ${esc(h.name || (pr[h.no] || {}).name || '')}`;
+  const ups = rows.filter(x => x.gap != null && x.gap >= 5).sort((a, b) => b.gap - a.gap), dns = rows.filter(x => x.gap != null && x.gap <= -5).sort((a, b) => a.gap - b.gap);
+  const sumGap = ups.length || dns.length ? `<div class="pgsum">${ups.length ? `<div><b class="up">人気よりパドックが良い</b>${ups.map(x => `<span>${nm(x.h)}（${popOf(x.h)}人気→${x.pk.rank}位）</span>`).join('')}</div>` : ''}` +
+    `${dns.length ? `<div><b class="dn">人気よりパドックが悪い</b>${dns.map(x => `<span>${nm(x.h)}（${popOf(x.h)}人気→${x.pk.rank}位）</span>`).join('')}</div>` : ''}</div>` : '';
+  const cards = rows.map(({ h, pk, gap }) => {
+    const q = pr[h.no], f = done ? fin(h.no) : null, pop = popOf(h);
+    const head = `<div class="pch">${uChip(h.no, h.w)}<b>${esc(h.name || (q && q.name) || '')}</b>${f ? `<span class="sub">・<b class="${f <= 3 ? 'plus' : ''}">${f}着</b></span>` : ''}</div>` +
+      `<div class="pgap"><span><i>人気</i><b>${pop ? pop + '番' : '-'}</b></span><span><i>パドック</i><b>${pk && pk.rank != null ? pk.rank + '位' : '-'}</b></span>` +
+      `<span class="${gapCls(gap)}"><i>差</i><b>${gap == null ? '-' : (gap > 0 ? '+' : '') + gap}</b><small>${gapTxt(gap)}</small></span></div>` +
+      `<div class="sub">${q ? `勝率 ${P(q.win)}・3着内 ${P(q.fuku)}` : ''}</div>` + chkLine(chkOf(X, k, h.no));
     const body = pk ? pkDetail(pk, { noNote: true }) + (pk.rubric === 'v4' && !pk.prev ? '<div class="sub nop">前回の診断なし（200日以内）</div>' : '') : '<div class="sub">まだ診断がありません</div>';
     return `<div class="pc" id="pc-${h.no}">${head}<div class="pb">${body}</div></div>`;
   }).join('');
-  return `<div class="seg"><span>並び</span><button type="button" data-pks="rank" class="${S.pkSort !== 'no' ? 'on' : ''}">パドックの順位</button><button type="button" data-pks="no" class="${S.pkSort === 'no' ? 'on' : ''}">馬番</button><span>前回の診断あり ${nPrev}頭</span></div>` +
-    cards + '<p class="foot2">80点＝問題なし（悪い所を引いた点）。赤は減点になった値・緑は良い値。前回との比較：緑＝良くなった・赤＝悪くなった。予想・買い目には入れていません。</p>';
+  return `<div class="seg"><span>並び</span><button type="button" data-pks="rank" class="${S.pkSort === 'rank' ? 'on' : ''}">パドックの順位</button><button type="button" data-pks="gap" class="${S.pkSort === 'gap' ? 'on' : ''}">人気との差</button><button type="button" data-pks="no" class="${S.pkSort === 'no' ? 'on' : ''}">馬番</button><span>前回の診断あり ${nPrev}頭</span></div>` +
+    sumGap + cards + '<p class="foot2">差＝人気の順番−パドックの順位（＋はパドックのほうが人気より上）。80点＝問題なし（悪い所を引いた点）。赤は減点になった値・緑は良い値。前回との比較：緑＝良くなった・赤＝悪くなった。予想・買い目には入れていません。</p>';
+}
+// チェック馬（前走が「6番人気以下で3着内＝激走」「3番人気以内で6着以下＝凡走」）の目印。表示だけで予想には入れない（2026/10/11）
+const CHK_NOTE = '前走で「6番人気以下で3着内（激走）」「3番人気以内で6着以下（凡走）」だった馬です。過去の分析（パドック診断のある約1万頭）では、人気で凡走した馬は次走で見込みより3着内に来ていました（33.7%・見込み29.2%）。激走した馬は次走ほぼ見込みどおりでした。予想・買い目には入れていません。';
+function chkOf(X, k, no) {
+  const c = ((X.cd[k] || {}).horses || []).find(h => +h.no === +no); if (c && c.chk) return c.chk;
+  const p = ((X.pd[k] || {}).horses || []).find(h => +h.no === +no); return (p && p.chk) || null;
+}
+const chkBadge = c => c ? `<span class="chkb ${c.kind === '激走' ? 'j' : 'b'}">前走${esc(c.kind)}</span>` : '';
+function chkLine(c) {
+  if (!c) return '';
+  const d = c.date ? `${+c.date.slice(4, 6)}/${+c.date.slice(6, 8)}` : '', g = c.gap;
+  return `<div class="chkl ${c.kind === '激走' ? 'j' : 'b'}"><b>前走${esc(c.kind)}</b> ${esc(d)} ${esc(c.race || '')}：${c.pop}番人気 → <b>${c.fin}着</b>` +
+    `${c.rank != null ? `・パドック${c.rank}位${c.rank_n ? `/${c.rank_n}頭` : ''}${g != null ? `（人気との差 ${g > 0 ? '+' : ''}${g}）` : ''}` : ''}</div>`;
+}
+function chkListHtml(X) {   // その日のチェック馬（発走の順）
+  const items = [];
+  for (const [k, c] of Object.entries(X.cd || {})) for (const h of (c && c.horses) || []) if (h.chk && !h.scr) items.push({ k, h, m: meta(X, k), gu: !!c.gateUnknown });
+  if (!items.length) return '';
+  items.sort((a, b) => (tmin(a.m.time) ?? 9999) - (tmin(b.m.time) ?? 9999) || rnOf(a.k) - rnOf(b.k) || a.h.no - b.h.no);
+  const nj = items.filter(x => x.h.chk.kind === '激走').length;
+  const body = `<ul class="lst">${items.map(({ k, h, m, gu }) => `<li><b>${esc(m.time || '')}</b> ${rTitle(m)}` +
+    `<div class="pch" style="margin-top:3px">${uChip(h.no, gu ? 0 : h.w)}<b>${esc(h.name || '')}</b>${h.pop ? `<span class="sub">今回 ${h.pop}番人気</span>` : ''}${h.fin ? `<span class="sub">・今回 <b class="${h.fin <= 3 ? 'plus' : ''}">${h.fin}着</b></span>` : ''}</div>${chkLine(h.chk)}</li>`).join('')}</ul>` +
+    `<p class="sub">${CHK_NOTE}</p>`;
+  return fold('t.chk', `チェック馬（前走 激走・凡走）${items.length}頭`, `激走${nj}・凡走${items.length - nj}`, body);
 }
 function pkInfoOf(X, k) { return X.pdk && X.pdk[k] ? X.pdk[k].horses || {} : null; }
 function predTable(X, k) {
@@ -679,7 +716,7 @@ function predTable(X, k) {
     const cc = ch[+h.no] || {}, f = fin(h.no), pk = PDK ? PDK[String(h.no)] || null : null;
     const odds = cc.odds || h.odds, pop = cc.pop || h.pop;
     return `<tr class="${cc.scr ? 'scr' : ''}${done && f && f <= 3 ? ' t3' : ''}${pk ? ' haspk' : ''}"${pk ? ` data-no="${esc(h.no)}"` : ''}>` +
-      `<td class="mk">${MARKS[hs.indexOf(h)] || ''}</td><td class="nm"><div class="n">${uChip(h.no, cc.w != null && !(c || {}).gateUnknown ? cc.w : 0)}<span>${esc(h.name || cc.name || '')}</span></div></td>` +
+      `<td class="mk">${MARKS[hs.indexOf(h)] || ''}</td><td class="nm"><div class="n">${uChip(h.no, cc.w != null && !(c || {}).gateUnknown ? cc.w : 0)}<span>${esc(h.name || cc.name || '')}${chkBadge(cc.chk || h.chk)}</span></div></td>` +
       `<td>${P(h.win)}</td><td>${P(h.fuku)}</td><td><span class="o">${odds ? Number(odds).toFixed(1) : '-'}</span>${pop ? `<div class="sub">${pop}人気</div>` : ''}</td>` +
       (PDK ? `<td>${pkCell(pk)}</td>` : '') + (done ? `<td class="fin">${f || (cc.scr ? '消' : '-')}</td>` : '') + '</tr>';
   }).join('');
@@ -744,7 +781,7 @@ function cardTable(X, k, r) {
   const hs = (r.horses || []).slice().sort((a, b) => a.no - b.no);
   const rows = hs.map(h => `<tr class="${h.scr ? 'scr' : ''}${done && h.fin && h.fin <= 3 ? ' top3' : ''}">${done ? `<td class="fin">${h.fin || (h.scr ? '消' : '-')}</td>` : ''}` +
     `<td>${uChip(h.no, r.gateUnknown ? 0 : h.w)}</td><td class="mk">${esc(h.mk || '')}</td>` +
-    `<td class="nm"><b>${esc(h.name || '')}</b><div class="sub">${esc(h.sa || '')}・${h.kg ?? '-'}kg・${esc(h.jk || '')}${h.jkb ? `（${esc(h.jkb)}から）` : ''}${h.wt ? `・${h.wt}kg${h.wd != null && h.wd !== '' ? `（${h.wd > 0 ? '+' : ''}${h.wd}）` : ''}` : ''}${h.note ? `・${esc(h.note)}` : ''}</div></td>` +
+    `<td class="nm"><b>${esc(h.name || '')}</b>${chkBadge(h.chk)}<div class="sub">${esc(h.sa || '')}・${h.kg ?? '-'}kg・${esc(h.jk || '')}${h.jkb ? `（${esc(h.jkb)}から）` : ''}${h.wt ? `・${h.wt}kg${h.wd != null && h.wd !== '' ? `（${h.wd > 0 ? '+' : ''}${h.wd}）` : ''}` : ''}${h.note ? `・${esc(h.note)}` : ''}</div></td>` +
     `<td><b>${h.odds ? Number(h.odds).toFixed(1) : '-'}</b><div class="sub">${h.pop ? h.pop + '人気' : ''}</div></td></tr>` + tcRow(h, done ? 5 : 4)).join('');
   const head = `<tr>${done ? '<th>着</th>' : ''}<th>馬番</th><th></th><th style="text-align:left">馬名・騎手</th><th>オッズ</th></tr>`;
   const tc = hs.some(h => h.tc) ? `<div class="seg"><span>調教の前走比</span><button type="button" data-tc="1" class="${S.tcOn ? 'on' : ''}">出す</button><button type="button" data-tc="0" class="${S.tcOn ? '' : 'on'}">出さない</button></div>` : '';

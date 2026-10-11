@@ -331,3 +331,32 @@ h3.s { font-size: 16.5px; font-weight: 800; margin: 18px 2px 8px; }
 .gopk { display: block; margin-top: 6px; font-size: 13.5px; font-weight: 800; color: var(--blue); background: transparent; border: 0; padding: 2px 0; text-align: left; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pc { border-left-color: #b79ce8; } }
 :root[data-theme="dark"] .pc { border-left-color: #b79ce8; }
+
+/* パドックのカード：人気とパドックの順位と差（2026/10/11） */
+.pgap { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 6px; margin: 7px 0 4px; }
+.pgap span { background: var(--chip); border-radius: 9px; padding: 4px 8px; min-width: 0; line-height: 1.3; }
+.pgap i { display: block; font-style: normal; font-size: 12px; font-weight: 700; color: var(--muted); }
+.pgap b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.pgap small { font-size: 12px; font-weight: 800; margin-left: 5px; }
+.pgap .up b, .pgap .up small { color: var(--win); }
+.pgap .up2 { background: var(--winbg); outline: 1.5px solid var(--win); }
+.pgap .up2 b, .pgap .up2 small { color: var(--win); }
+.pgap .dn b, .pgap .dn small { color: var(--lose); }
+.pgap .dn2 { background: var(--wbg); outline: 1.5px solid var(--lose); }
+.pgap .dn2 b, .pgap .dn2 small { color: var(--lose); }
+.pgsum { background: var(--card); border: 1.5px solid var(--line); border-radius: 12px; padding: 9px 12px; margin-bottom: 10px; font-size: 14px; line-height: 1.6; }
+.pgsum div + div { margin-top: 4px; }
+.pgsum b { display: block; font-size: 13.5px; }
+.pgsum b.up { color: var(--win); }
+.pgsum b.dn { color: var(--lose); }
+.pgsum span { display: inline-block; margin-right: 10px; font-weight: 700; }
+
+/* チェック馬（前走 激走・凡走）（2026/10/11） */
+.chkb { display: inline-block; font-size: 11.5px; font-weight: 800; padding: 0 6px; border-radius: 6px; margin-left: 5px; white-space: nowrap; vertical-align: 1px; line-height: 1.5; }
+.chkb.j { background: var(--winbg); color: var(--win); border: 1.5px solid var(--win); }
+.chkb.b { background: var(--wbg); color: var(--lose); border: 1.5px solid var(--lose); }
+.chkl { font-size: 13.5px; margin: 6px 0 2px; padding: 5px 9px; border-radius: 8px; line-height: 1.55; }
+.chkl.j { background: var(--winbg); }
+.chkl.b { background: var(--wbg); }
+.chkl.j > b:first-child { color: var(--win); }
+.chkl.b > b:first-child { color: var(--lose); }
