@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0f1720">
+<meta name="theme-color" content="#101418">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="GATE IN">
 <title>GATE IN ビューア</title>
@@ -11,60 +11,47 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script>try{var t=localStorage.getItem("gatein_theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
 </head>
 <body>
-<header class="top">
-  <div class="brand">GATE IN <span>見るだけ</span></div>
-  <div class="topr"><button id="themeBtn" class="themeb" type="button" title="表示の色を切り替え">表示：自動</button><div id="home" class="home">—</div></div>
-</header>
+<div class="bar">
+  <header class="top">
+    <div class="brand">GATE IN</div>
+    <div class="topr"><div id="home" class="home">—</div><button id="reload" class="rl" type="button">更新</button></div>
+  </header>
+  <nav class="tabs" id="tabs" hidden>
+    <button type="button" data-tab="today" class="on">今日</button>
+    <button type="button" data-tab="race">レース</button>
+    <button type="button" data-tab="pl">収支</button>
+    <button type="button" data-tab="review">反省会</button>
+    <button type="button" data-tab="setting">設定</button>
+  </nav>
+</div>
 
 <section id="login" class="login" hidden>
   <p>家のパソコンが Google ドライブに置いた記録を読みます。<br>読むだけで、買ったり設定を変えたりはしません。</p>
-  <button id="signin" class="btn">Google でログイン</button>
+  <button id="signin" class="btn" type="button">Google でログイン</button>
   <p class="sub" id="loginMsg"></p>
 </section>
 
-<nav class="tabs" id="tabs" hidden>
-  <button data-tab="today" class="on">開催日</button>
-  <button data-tab="card">出馬表</button>
-  <button data-tab="pred">予想</button>
-  <button data-tab="pl">収支</button>
-  <button data-tab="review">反省会</button>
-  <button data-tab="setting">自動投票</button>
-</nav>
-
 <main id="main" hidden>
   <section data-view="today">
-    <div class="row"><select id="day"></select><button id="reload" class="btn ghost">更新</button></div>
-    <div id="dayTotal" class="cards"></div>
-    <div id="win5"></div>
-    <div id="shobu"></div>
-    <div class="vanchor"></div><div class="venues sticky" id="dayVenues" hidden></div>
-    <div id="dayPred"></div>
-    <h3 id="racesHead">自動投票で買った馬券</h3>
-    <div id="races"></div>
+    <div class="dayrow"><select id="day" aria-label="日付"></select></div>
+    <div id="today"></div>
   </section>
-  <section data-view="card" hidden>
-    <div class="row"><select id="cdDay"></select></div>
-    <div class="vanchor"></div><div class="venues sticky" id="cdVenues" hidden></div>
-    <div id="cdTop"></div>
-    <div id="cards"></div>
-  </section>
-  <section data-view="pred" hidden>
-    <div class="row"><select id="pdDay"></select></div>
-    <div class="vanchor"></div><div class="venues sticky" id="pdVenues" hidden></div>
-    <div id="pdTop"></div>
-    <div id="pred"></div>
+  <section data-view="race" hidden>
+    <div class="dayrow"><select id="rday" aria-label="日付"></select></div>
+    <div class="venues" id="rVenues" hidden></div>
+    <div class="rsel" id="rSel"></div>
+    <div id="race"></div>
   </section>
   <section data-view="pl" hidden>
-    <div id="plTotal" class="cards"></div>
-    <div id="plTable"></div>
+    <div id="pl"></div>
   </section>
   <section data-view="review" hidden>
-    <div class="row"><select id="rvDay"></select></div>
+    <div class="dayrow"><select id="rvDay" aria-label="日付"></select></div>
     <div id="review"></div>
   </section>
   <section data-view="setting" hidden>
