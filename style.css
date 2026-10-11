@@ -318,6 +318,8 @@ h3.s { font-size: 16.5px; font-weight: 800; margin: 18px 2px 8px; }
 .rsub button { flex: 1 1 0; font-size: 16px; font-weight: 700; color: var(--muted); background: transparent; border: 0; padding: 9px 4px 7px; border-bottom: 4px solid transparent; margin-bottom: -2px; }
 .rsub button.on { color: var(--ink); font-weight: 800; border-bottom-color: var(--blue); }
 .rsub button small { font-size: 12px; font-weight: 700; margin-left: 4px; color: var(--muted); }
+.rsub.three button { font-size: 14.5px; line-height: 1.3; padding: 8px 2px 6px; }
+.rsub.three button small { display: block; margin: 1px 0 0; font-size: 11px; }
 /* パドック（馬ごと）のカード */
 .pc { background: var(--card); border: 1.5px solid var(--line); border-left: 5px solid #7a4fb5; border-radius: 12px; padding: 10px 12px 11px; margin-bottom: 10px; }
 .pc .pch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -340,6 +342,8 @@ h3.s { font-size: 16.5px; font-weight: 800; margin: 18px 2px 8px; }
 .pgap i { display: block; font-style: normal; font-size: 12px; font-weight: 700; color: var(--muted); }
 .pgap b { font-size: 18px; font-variant-numeric: tabular-nums; }
 .pgap small { font-size: 12px; font-weight: 800; margin-left: 5px; }
+.pgap small.pti { color: var(--muted); font-weight: 700; }
+.pkalt.pktie { color: var(--ink); }
 .pgap .up b, .pgap .up small { color: var(--win); }
 .pgap .up2 { background: var(--winbg); outline: 1.5px solid var(--win); }
 .pgap .up2 b, .pgap .up2 small { color: var(--win); }
