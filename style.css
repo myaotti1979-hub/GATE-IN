@@ -344,6 +344,10 @@ h3.s { font-size: 16.5px; font-weight: 800; margin: 18px 2px 8px; }
 .pgap .dn b, .pgap .dn small { color: var(--lose); }
 .pgap .dn2 { background: var(--wbg); outline: 1.5px solid var(--lose); }
 .pgap .dn2 b, .pgap .dn2 small { color: var(--lose); }
+.pgap.pres { grid-template-columns: .8fr 1.35fr 1.35fr; margin-top: 0; }
+.pgap.pres small { display: block; margin-left: 0; }
+.pgap .f3 b { color: var(--win); }
+.pgsum.pfin { border-color: var(--win); }
 .pgsum { background: var(--card); border: 1.5px solid var(--line); border-radius: 12px; padding: 9px 12px; margin-bottom: 10px; font-size: 14px; line-height: 1.6; }
 .pgsum div + div { margin-top: 4px; }
 .pgsum b { display: block; font-size: 13.5px; }
@@ -360,3 +364,25 @@ h3.s { font-size: 16.5px; font-weight: 800; margin: 18px 2px 8px; }
 .chkl.b { background: var(--wbg); }
 .chkl.j > b:first-child { color: var(--win); }
 .chkl.b > b:first-child { color: var(--lose); }
+
+/* パドックの勉強ノート（2026/10/11） */
+.stbox { padding: 10px 12px; }
+.stbox .sth { font-size: 14.5px; line-height: 1.6; }
+.stbox .sub { margin: 6px 0 0; }
+.stl li { line-height: 1.6; }
+.stl li b.plus, .stl li b.minus2 { margin-left: 6px; }
+.minus2 { color: var(--lose); font-weight: 800; }
+.stsel { width: 100%; font-size: 16px; font-weight: 700; padding: 8px 10px; margin: 0 0 8px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); }
+.stt td small { display: block; font-size: 11.5px; color: var(--muted); font-weight: 700; }
+.stt td.stp b { color: var(--win); }
+.stt td.stm b { color: var(--lose); }
+.stt td.stn b { color: var(--muted); font-weight: 600; }
+.stF, .stT { display: block; font-size: 11px; font-weight: 800; }
+.stF { color: var(--blue); }
+.stT { color: var(--muted); }
+.chkl .chk2 { margin-top: 3px; font-size: 13px; line-height: 1.55; }
+.pki.dif b { text-decoration: underline dotted; text-underline-offset: 3px; }
+.pkalt { font-size: 13px; color: var(--muted); margin: 2px 0 4px; line-height: 1.5; }
+.tw.near { border-style: dashed; }
+.tw.near .nh { font-size: 14px; font-weight: 800; color: var(--muted); padding: 8px 12px 0; }
+.tw.near .lst { margin: 0; padding: 2px 12px 6px; }

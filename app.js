@@ -121,7 +121,8 @@ const S = {
   idx: null, days: [], day: null, D: {}, status: null, hb: null, loadedAt: 0,
   tab: storeGet('gatein_tab2') || 'today', venue: storeGet('gatein_venue') || '', race: {},
   fold: jsonGet('gatein_vfold', {}), pdAll: storeGet('gatein_pdall2') === 'all', tcOn: storeGet('gatein_tc') !== '0', pl: null, rv: {},
-  rsub: storeGet('gatein_rsub') === 'pdk' ? 'pdk' : 'pred', pkSort: ['no', 'gap'].includes(storeGet('gatein_pksort')) ? storeGet('gatein_pksort') : 'rank'
+  rsub: storeGet('gatein_rsub') === 'pdk' ? 'pdk' : 'pred', rvSub: storeGet('gatein_rvsub') === 'study' ? 'study' : 'day',
+  stMode: storeGet('gatein_stmode') === 'sign' ? 'sign' : 'ctx', stCtx: storeGet('gatein_stctx') || 'all:全部', stSign: storeGet('gatein_stsign') || 'top', stPop: storeGet('gatein_stpop') || 'all', pkSort: ['no', 'gap', 'fin'].includes(storeGet('gatein_pksort')) ? storeGet('gatein_pksort') : 'rank'
 };
 const foldOpen = (id, def) => S.fold[id] == null ? !!def : !!S.fold[id];
 function fold(id, title, right, body, def, sub) {   // 折りたためる欄（開け閉めは覚える）
@@ -170,11 +171,12 @@ async function loadIndex() {
   const ids = await Promise.all(names.map(n => folder(n, viewId)));
   const F = Object.fromEntries(names.map((n, i) => [n, ids[i]]));
   const [logId, rvId] = await Promise.all([F.autobet ? folder('log', F.autobet) : null, F.improve ? folder('review', F.improve) : null]);
-  const [lg, rs, sb, w5, cd, pd, pdk, ab, rv] = await Promise.all([logId, F.results, F.shobu, F.win5, F.cards, F.predict, F.paddock, F.autobet, rvId].map(list));
+  const [lg, rs, sb, w5, cd, pd, pdk, ab, rv, imp] = await Promise.all([logId, F.results, F.shobu, F.win5, F.cards, F.predict, F.paddock, F.autobet, rvId, F.improve].map(list));
   // 小さすぎるファイル（開催のない日の空の写し）は日付の一覧に入れない
   const byDay = (fs, min) => Object.fromEntries((fs || []).filter(f => /^\d{8}\.json$/.test(f.name) && !(min && f.size != null && +f.size < min)).map(f => [f.name.slice(0, 8), f.id]));
   S.idx = { log: byDay(lg), res: byDay(rs), sb: byDay(sb), w5: byDay(w5), cd: byDay(cd), pd: byDay(pd), pdk: byDay(pdk), rv: byDay(rv),
-    cdBig: byDay(cd, 6000), resBig: byDay(rs, 2000), pdBig: byDay(pd, 6000), rvTotal: ((rv || []).find(f => f.name === 'total.json') || {}).id };
+    cdBig: byDay(cd, 6000), resBig: byDay(rs, 2000), pdBig: byDay(pd, 6000), rvTotal: ((rv || []).find(f => f.name === 'total.json') || {}).id,
+    study: ((imp || []).find(f => f.name === 'pdkstudy.json') || {}).id, studyAt: ((imp || []).find(f => f.name === 'pdkstudy.json') || {}).modifiedTime || '' };
   const [hb, st] = await Promise.all([readJson((top.find(f => f.name === 'heartbeat.json') || {}).id), readJson(((ab || []).find(f => f.name === 'status.json') || {}).id)]);
   S.hb = hb; S.status = st; S.loadedAt = Date.now();
   renderHome();
@@ -412,6 +414,9 @@ function renderToday() {
     h += `<div class="sh"><h2>これから買う予定</h2><span>発走の順</span></div>`;
     h += up.length ? up.map(u => upCard(X, u)).join('') : `<p class="empty">${W && (W.cands || []).length ? '今のオッズで買う予定のレースはありません' : 'いまのところ買う予定のレースはありません'}</p>`;
     if (others.length) h += fold('t.others', `ほかのWの候補 ${others.length}R`, '今のままなら見送り', others.map(u => upCard(X, u)).join(''));
+    // 基準にあと少しのレース（これから候補になるかも）を2つ（2026/10/11 ご要望：見送りの一覧の代わりに）
+    const near = ((W && W.near) || []).filter(x => !(W.races || {})[x.key]);
+    if (near.length) h += `<div class="tw near"><div class="nh">候補になるかも（あと少しで基準）</div><ul class="lst">${near.map(x => `<li><b>${esc(x.time || '')}</b> ${esc(x.name)}<div class="sub">${esc(x.pname)} 推定${(x.roi * 100).toFixed(x.gap < 0.01 ? 1 : 0)}%（基準${P(x.th)}まであと${(x.gap * 100).toFixed(x.gap < 0.01 ? 1 : 0)}%）</div></li>`).join('')}</ul></div>`;
     if (W) h += `<p class="foot2">Wは、締切の約1分40秒前に最新のオッズで買うかどうかを決めます。${W.candsAt ? `候補は ${esc(W.candsAt)} の計算。` : ''}1日${cap == null ? '何R' : cap + 'R'}まで。</p>`;
   }
   // ---- 買った馬券 ----
@@ -658,27 +663,48 @@ function paddockHtml(X, k) {
   // 人気とパドックの順位の差（＋＝パドックのほうが人気より上）（2026/10/11 ご要望）
   const popOf = h => +(h.pop || (pr[h.no] || {}).pop) || null;
   const gapOf = (h, pk) => popOf(h) && pk && pk.rank != null ? popOf(h) - pk.rank : null;
-  const rows = hs.map(h => ({ h, pk: PDK[String(h.no)] || null })).map(x => ({ ...x, gap: gapOf(x.h, x.pk) }));
+  // 着順が出たら：パドックの順位−着順（＋＝パドックの順位より上の着順）・人気の順番−着順（2026/10/11 ご要望）
+  const rows = hs.map(h => ({ h, pk: PDK[String(h.no)] || null })).map(x => {
+    const f = done ? fin(x.h.no) : null, pp = popOf(x.h);
+    return { ...x, gap: gapOf(x.h, x.pk), f, fg: f && x.pk && x.pk.rank != null ? x.pk.rank - f : null, pf: f && pp ? pp - f : null };
+  });
   const byRank = (a, b) => ((a.pk && a.pk.rank != null ? a.pk.rank : 99) - (b.pk && b.pk.rank != null ? b.pk.rank : 99)) || a.h.no - b.h.no;
-  rows.sort((a, b) => S.pkSort === 'no' ? a.h.no - b.h.no : S.pkSort === 'gap' ? ((b.gap ?? -99) - (a.gap ?? -99)) || byRank(a, b) : byRank(a, b));
+  const sortBy = S.pkSort === 'fin' && !done ? 'rank' : S.pkSort;
+  rows.sort((a, b) => sortBy === 'no' ? a.h.no - b.h.no : sortBy === 'gap' ? ((b.gap ?? -99) - (a.gap ?? -99)) || byRank(a, b) : sortBy === 'fin' ? ((a.f || 99) - (b.f || 99)) || byRank(a, b) : byRank(a, b));
   const nPrev = rows.filter(x => x.pk && x.pk.prev).length;
   const gapTxt = g => g == null ? '' : g >= 3 ? 'パドックが上' : g <= -3 ? 'パドックが下' : 'ほぼ同じ';
   const gapCls = g => g == null ? '' : g >= 5 ? 'up2' : g >= 3 ? 'up' : g <= -5 ? 'dn2' : g <= -3 ? 'dn' : '';
   const nm = h => `${h.no} ${esc(h.name || (pr[h.no] || {}).name || '')}`;
+  const sg = v => (v > 0 ? '+' : '') + v;
+  const fgTxt = g => g == null ? '' : g >= 3 ? 'パドックより上' : g <= -3 ? 'パドックより下' : 'ほぼ同じ';
+  const pfTxt = g => g == null ? '' : g >= 3 ? '人気より上' : g <= -3 ? '人気より下' : 'ほぼ同じ';
+  // 着順が出たら：3着内の馬のパドックと、パドック上位（1〜3位）の着順。同じ点で並んだ順位はまとめて出す
+  const t3 = rows.filter(x => x.f && x.f <= 3).sort((a, b) => a.f - b.f);
+  const pkg = [];
+  for (const x of rows.filter(x => x.pk && x.pk.rank != null && x.pk.rank <= 3).sort((a, b) => a.pk.rank - b.pk.rank || a.h.no - b.h.no)) {
+    const g = pkg.find(g => g.r === x.pk.rank); if (g) g.xs.push(x); else pkg.push({ r: x.pk.rank, xs: [x] });
+  }
+  const pkTxt = g => g.xs.length <= 2 ? g.xs.map(x => `<span>${g.r}位 ${nm(x.h)} → ${x.f ? x.f + '着' : '着順なし'}</span>`).join('')
+    : `<span>${g.r}位（同じ点の${g.xs.length}頭）→ ${g.xs.map(x => x.f).filter(Boolean).sort((a, b) => a - b).map(f => f + '着').join('・') || '着順なし'}</span>`;
+  const sumFin = done && (t3.length || pkg.length) ? `<div class="pgsum pfin">${t3.length ? `<div><b>3着内に来た馬のパドック</b>${t3.map(x => `<span>${x.f}着 ${nm(x.h)}（${x.pk && x.pk.rank != null ? `パドック${x.pk.rank}位${x.pk.total != null ? '・' + x.pk.total + '点' : ''}` : 'パドックなし'}）</span>`).join('')}</div>` : ''}` +
+    `${pkg.length ? `<div><b>パドック上位（1〜3位）の着順</b>${pkg.map(pkTxt).join('')}</div>` : ''}</div>` : '';
   const ups = rows.filter(x => x.gap != null && x.gap >= 5).sort((a, b) => b.gap - a.gap), dns = rows.filter(x => x.gap != null && x.gap <= -5).sort((a, b) => a.gap - b.gap);
   const sumGap = ups.length || dns.length ? `<div class="pgsum">${ups.length ? `<div><b class="up">人気よりパドックが良い</b>${ups.map(x => `<span>${nm(x.h)}（${popOf(x.h)}人気→${x.pk.rank}位）</span>`).join('')}</div>` : ''}` +
     `${dns.length ? `<div><b class="dn">人気よりパドックが悪い</b>${dns.map(x => `<span>${nm(x.h)}（${popOf(x.h)}人気→${x.pk.rank}位）</span>`).join('')}</div>` : ''}</div>` : '';
-  const cards = rows.map(({ h, pk, gap }) => {
-    const q = pr[h.no], f = done ? fin(h.no) : null, pop = popOf(h);
+  const cards = rows.map(({ h, pk, gap, f, fg, pf }) => {
+    const q = pr[h.no], pop = popOf(h);
     const head = `<div class="pch">${uChip(h.no, h.w)}<b>${esc(h.name || (q && q.name) || '')}</b>${f ? `<span class="sub">・<b class="${f <= 3 ? 'plus' : ''}">${f}着</b></span>` : ''}</div>` +
       `<div class="pgap"><span><i>人気</i><b>${pop ? pop + '番' : '-'}</b></span><span><i>パドック</i><b>${pk && pk.rank != null ? pk.rank + '位' : '-'}</b></span>` +
       `<span class="${gapCls(gap)}"><i>差</i><b>${gap == null ? '-' : (gap > 0 ? '+' : '') + gap}</b><small>${gapTxt(gap)}</small></span></div>` +
+      (done ? `<div class="pgap pres"><span class="${f && f <= 3 ? 'f3' : ''}"><i>着順</i><b>${f ? f + '着' : '-'}</b></span>` +
+        `<span class="${gapCls(fg)}"><i>パドックとの差</i><b>${fg == null ? '-' : sg(fg)}</b><small>${fgTxt(fg)}</small></span>` +
+        `<span class="${gapCls(pf)}"><i>人気との差</i><b>${pf == null ? '-' : sg(pf)}</b><small>${pfTxt(pf)}</small></span></div>` : '') +
       `<div class="sub">${q ? `勝率 ${P(q.win)}・3着内 ${P(q.fuku)}` : ''}</div>` + chkLine(chkOf(X, k, h.no));
     const body = pk ? pkDetail(pk, { noNote: true }) + (pk.rubric === 'v4' && !pk.prev ? '<div class="sub nop">前回の診断なし（200日以内）</div>' : '') : '<div class="sub">まだ診断がありません</div>';
     return `<div class="pc" id="pc-${h.no}">${head}<div class="pb">${body}</div></div>`;
   }).join('');
-  return `<div class="seg"><span>並び</span><button type="button" data-pks="rank" class="${S.pkSort === 'rank' ? 'on' : ''}">パドックの順位</button><button type="button" data-pks="gap" class="${S.pkSort === 'gap' ? 'on' : ''}">人気との差</button><button type="button" data-pks="no" class="${S.pkSort === 'no' ? 'on' : ''}">馬番</button><span>前回の診断あり ${nPrev}頭</span></div>` +
-    sumGap + cards + '<p class="foot2">差＝人気の順番−パドックの順位（＋はパドックのほうが人気より上）。80点＝問題なし（悪い所を引いた点）。赤は減点になった値・緑は良い値。前回との比較：緑＝良くなった・赤＝悪くなった。予想・買い目には入れていません。</p>';
+  return `<div class="seg"><span>並び</span><button type="button" data-pks="rank" class="${sortBy === 'rank' ? 'on' : ''}">パドックの順位</button><button type="button" data-pks="gap" class="${S.pkSort === 'gap' ? 'on' : ''}">人気との差</button><button type="button" data-pks="no" class="${S.pkSort === 'no' ? 'on' : ''}">馬番</button>${done ? `<button type="button" data-pks="fin" class="${sortBy === 'fin' ? 'on' : ''}">着順</button>` : ''}<span>前回の診断あり ${nPrev}頭</span></div>` +
+    sumFin + sumGap + cards + '<p class="foot2">差＝人気の順番−パドックの順位（＋はパドックのほうが人気より上）。' + (done ? '着順が出たら：パドックとの差＝パドックの順位−着順（＋はパドックの順位より上の着順）・人気との差＝人気の順番−着順。' : '') + '80点＝問題なし（悪い所を引いた点）。赤は減点になった値・緑は良い値。前回との比較：緑＝良くなった・赤＝悪くなった。予想・買い目には入れていません。</p>';
 }
 // チェック馬（前走が「6番人気以下で3着内＝激走」「3番人気以内で6着以下＝凡走」）の目印。表示だけで予想には入れない（2026/10/11）
 const CHK_NOTE = '前走で「6番人気以下で3着内（激走）」「3番人気以内で6着以下（凡走）」だった馬です。過去の分析（パドック診断のある約1万頭）では、人気で凡走した馬は次走で見込みより3着内に来ていました（33.7%・見込み29.2%）。激走した馬は次走ほぼ見込みどおりでした。予想・買い目には入れていません。';
@@ -691,7 +717,20 @@ function chkLine(c) {
   if (!c) return '';
   const d = c.date ? `${+c.date.slice(4, 6)}/${+c.date.slice(6, 8)}` : '', g = c.gap;
   return `<div class="chkl ${c.kind === '激走' ? 'j' : 'b'}"><b>前走${esc(c.kind)}</b> ${esc(d)} ${esc(c.race || '')}：${c.pop}番人気 → <b>${c.fin}着</b>` +
-    `${c.rank != null ? `・パドック${c.rank}位${c.rank_n ? `/${c.rank_n}頭` : ''}${g != null ? `（人気との差 ${g > 0 ? '+' : ''}${g}）` : ''}` : ''}</div>`;
+    `${c.rank != null ? `・パドック${c.rank}位${c.rank_n ? `/${c.rank_n}頭` : ''}${g != null ? `（人気との差 ${g > 0 ? '+' : ''}${g}）` : ''}` : ''}${chkMore(c)}</div>`;
+}
+function chkMore(c) {   // 今回のクラスの変わり方・同じ形の過去の次走（勉強ノートから）・この馬のパドックの流れ（2026/10/11 午後）
+  const out = [], L = c.like;
+  if (c.cls || L) {
+    let t = c.cls ? `今回は<b>${esc(c.cls)}</b>` : '';
+    if (L) {
+      const cond = ['前走' + c.kind, L.th ? ST_TH[L.th] : '', L.chg ? '今回' + L.chg : ''].filter(Boolean).join('・'), dd = Math.round((L.r - L.e) * 10) / 10;
+      t += `${t ? '。' : ''}同じ形の過去（${esc(cond)}）：${L.n}頭・次走3着内 ${(+L.r).toFixed(1)}%（見込み ${(+L.e).toFixed(1)}%・<b class="${dd > 0 ? 'plus' : dd < 0 ? 'minus2' : ''}">${dd > 0 ? '+' : ''}${dd.toFixed(1)}</b>）`;
+    }
+    out.push(`<div class="chk2">${t}</div>`);
+  }
+  if (c.hist && c.hist.length >= 2) out.push(`<div class="chk2">この馬のパドック：${c.hist.map(h => `${+String(h.date).slice(4, 6)}/${+String(h.date).slice(6, 8)} ${h.pop}人気→${h.fin}着・P${h.rank}位`).join(' ／ ')}</div>`);
+  return out.join('');
 }
 function chkListHtml(X) {   // その日のチェック馬（発走の順）
   const items = [];
@@ -844,12 +883,20 @@ function pkPrev4(pk) {
     (parts.length ? parts.map(([t, c]) => `<span class="${c > 0 ? 'g' : c < 0 ? 'w' : ''}">${esc(t)}</span>`).join('') : '<span>変わりなし</span>') +
     (p.dt ? `<span class="${p.dt > 0 ? 'g' : 'w'}">合計${p.dt > 0 ? '+' : ''}${p.dt}</span>` : '') + '</div>';
 }
+function pkAlt(pk) {   // 見比べ（全馬を並べた値・点数はこちら）と1頭ずつ見た値が違う項目（2026/10/11 ご質問：毛ヅヤが「良い」なのにコメントは「ふつう」）
+  const out = {};
+  if (pk.score_by !== '見比べ' || !pk.items) return out;
+  for (const [k] of PDK_ITEM4) { const a = pkv(pk.items[k]), b = (pk.vals || {})[k]; if (Number.isInteger(a) && Number.isInteger(b) && a !== b) out[k] = a; }
+  return out;
+}
 function pkDetail4(pk, o = {}) {   // o.noPrev：前回との比較を出さない（予想の表）・o.noNote：下の説明を出さない（パドックのタブ）
-  const its = PDK_ITEM4.map(([k, nm]) => { const v = (pk.vals || {})[k]; return `<span class="pki${pk4Cls(pk, k, v)}"><i>${nm}</i><b>${esc(pk4Txt(k, v))}</b></span>`; }).join('');
+  const alt = pkAlt(pk), altK = Object.keys(alt);
+  const its = PDK_ITEM4.map(([k, nm]) => { const v = (pk.vals || {})[k]; return `<span class="pki${pk4Cls(pk, k, v)}${k in alt ? ' dif' : ''}"><i>${nm}</i><b>${esc(pk4Txt(k, v))}</b></span>`; }).join('');
+  const altL = altK.length ? `<div class="pkalt">1頭ずつ見たときは：${altK.map(k => `${esc((PDK_ITEM4.find(x => x[0] === k) || [k, k])[1])} ${esc(pk4Txt(k, alt[k]))}`).join('・')}（見比べと違う所。点数は見比べの値）</div>` : '';
   const fl = (pk.flags || []).map(f => `<span class="${f.lv === '重' ? 'w' : f.lv === '中' ? 'm' : ''}">${esc(f.f)}${f.lv !== '情報' ? `（${esc(f.lv)}）` : ''}</span>`).join('') + (pk.gear || []).map(g => `<span>${esc(g)}</span>`).join('');
   const cm = pk.cmp && pk.cmp.note && pk.score_by === '見比べ' ? pk.cmp.note : '';
   return `<div class="pkh">パドック診断（AI${pk.score_by === '見比べ' ? '・全馬を見比べ' : ''}）<b>${pk.total ?? '-'}</b>/100点・総合 <b>${esc(pk.overall || '-')}</b> ${esc(pk.label || '')}${pk.rank != null ? `（${pk.rank}位/${pk.rank_n}頭）` : ''}</div>` +
-    `<div class="pkg">${its}</div>${fl ? `<div class="pkf">${fl}</div>` : ''}${o.noPrev ? '' : pkPrev4(pk)}${cm ? `<div><b>${esc(cm)}</b></div>` : ''}<div>${esc(pk.comment || '')}</div>` +
+    `<div class="pkg">${its}</div>${altL}${fl ? `<div class="pkf">${fl}</div>` : ''}${o.noPrev ? '' : pkPrev4(pk)}${cm ? `<div><b>見比べ：${esc(cm)}</b></div>` : ''}<div>${cm && pk.comment ? '1頭ずつ：' : ''}${esc(pk.comment || '')}</div>` +
     `${pk.no_ok === false ? '<div class="sub">※ゼッケンの読み取りが馬番と違います（参考）</div>' : ''}` +
     (o.noPrev && pk.prev ? `<button type="button" class="gopk" data-gopdk="${esc(String(pk.no || ''))}">前回との比較を見る（パドックのタブ）▶</button>` : '') +
     (o.noNote ? '' : '<div class="sub">80点＝問題なし（悪い所を引いた点）。赤は減点になった値・緑は良い値。予想・買い目には入れていません</div>');
@@ -922,13 +969,118 @@ async function renderPL() {
 // ============ 反省会 ============
 async function renderReview() {
   const I = S.idx || {}, days = Object.keys(I.rv || {}).sort().reverse();
+  const sub = `<div class="rsub"><button type="button" data-rvsub="day" class="${S.rvSub === 'day' ? 'on' : ''}">この日の反省会</button><button type="button" data-rvsub="study" class="${S.rvSub === 'study' ? 'on' : ''}">パドックの勉強ノート</button></div>`;
+  $('#rvDay').parentElement.hidden = S.rvSub === 'study';
+  if (S.rvSub === 'study') {
+    if (S.rv._study === undefined || S.rv._studyAt !== I.studyAt) { $('#review').innerHTML = sub + '<p class="empty">読み込み中…</p>'; S.rv._study = await readJson(I.study); S.rv._studyAt = I.studyAt; }
+    $('#review').innerHTML = sub + studyHtml(S.rv._study); return;
+  }
   $('#rvDay').innerHTML = days.map(d => `<option value="${d}"${d === S.rvDay ? ' selected' : ''}>${mdw(d)}</option>`).join('') || '<option>反省会の記録なし</option>';
-  if (!days.length) { $('#review').innerHTML = '<p class="empty">まだ反省会の記録がありません（その日の全レースが終わってから、家のPCが作ります）</p>'; return; }
+  if (!days.length) { $('#review').innerHTML = sub + '<p class="empty">まだ反省会の記録がありません（その日の全レースが終わってから、家のPCが作ります）</p>'; return; }
   if (!S.rvDay || !days.includes(S.rvDay)) S.rvDay = days[0];
   $('#rvDay').value = S.rvDay;
   const [r, tot] = await Promise.all([S.rv[S.rvDay] !== undefined ? S.rv[S.rvDay] : readJson(I.rv[S.rvDay]), S.rv._total !== undefined ? S.rv._total : readJson(I.rvTotal)]);
   S.rv[S.rvDay] = r; S.rv._total = tot;
-  $('#review').innerHTML = reviewHtml(r, tot);
+  $('#review').innerHTML = sub + reviewHtml(r, tot);
+}
+$('#review').addEventListener('click', e => {
+  const b = e.target.closest('button[data-rvsub]');
+  if (b) { S.rvSub = b.dataset.rvsub; storeSet('gatein_rvsub', S.rvSub); renderReview(); return; }
+  const m = e.target.closest('button[data-stmode]');
+  if (m) { S.stMode = m.dataset.stmode; storeSet('gatein_stmode', S.stMode); renderReview(); return; }
+  const gp = e.target.closest('button[data-stpop]');
+  if (gp) { S.stPop = gp.dataset.stpop; storeSet('gatein_stpop', S.stPop); renderReview(); }
+});
+$('#review').addEventListener('change', e => {
+  if (e.target.id === 'stCtx') { S.stCtx = e.target.value; storeSet('gatein_stctx', S.stCtx); renderReview(); }
+  if (e.target.id === 'stSign') { S.stSign = e.target.value; storeSet('gatein_stsign', S.stSign); renderReview(); }
+});
+// ============ パドックの勉強ノート（2026/10/11 ご要望：競馬場・天気・季節などで見るべき内容が変わるかもしれない。これから勉強していく） ============
+// 家のPCが開催のあとに全部のパドック診断と結果から数え直す（improve/pdkstudy.json）。表示だけで、予想・買い目には入れない
+const ST_TH = { top: 'パドック上位', mid: 'パドック中', bot: 'パドック下位' };
+function stCtxName(st, c) {
+  if (c === 'all:全部') return '全部';
+  const [g, v] = c.split(/:(.*)/s), G = (st.ctx || []).find(x => x.id === g);
+  return `${G ? G.name : g} ${v}`;
+}
+function stDiffTd(v, small) {   // v＝[頭数, 実際%, 見込み%, z, 単勝回収%, 複勝回収%, 印]
+  if (!v) return '<td class="stn">-</td>';
+  const d = Math.round((v[1] - v[2]) * 10) / 10, c = Math.abs(v[3]) >= 2 ? (d > 0 ? 'stp' : 'stm') : 'stn';
+  return `<td class="${c}"><b>${d > 0 ? '+' : ''}${d.toFixed(1)}</b>${small ? `<small>${v[0]}頭</small>` : ''}${v[6] === 2 ? '<span class="stF">見えてきた</span>' : v[6] === 1 ? '<span class="stT">傾向</span>' : ''}</td>`;
+}
+const stRow = (lab, v) => `<tr><td>${lab}</td>${v ? `<td>${v[0]}</td><td>${v[1].toFixed(1)}%</td><td>${v[2].toFixed(1)}%</td>` : '<td>-</td><td>-</td><td>-</td>'}${stDiffTd(v)}</tr>`;
+const stHead = first => `<tr><th>${first}</th><th>頭数</th><th>3着内</th><th>見込み</th><th>差</th></tr>`;
+function stItem(st, f) {
+  const d = Math.round((f.r - f.e) * 10) / 10;
+  return `<li><b>${esc(stCtxName(st, f.c))}・${esc(f.name)}</b>：${f.n}頭・3着内 ${f.r.toFixed(1)}%（見込み ${f.e.toFixed(1)}%）<b class="${d > 0 ? 'plus' : 'minus2'}">${d > 0 ? '+' : ''}${d.toFixed(1)}</b>${f.tan != null ? `<span class="sub">　単勝回収 ${f.tan}%・複勝回収 ${f.fuku}%</span>` : ''}</li>`;
+}
+function studyHtml(st) {
+  if (!st || !st.cells) return '<p class="empty">まだ勉強ノートがありません。家のPCで GATE IN を新しくしたあと、開催が終わってから自動で作ります（パドック診断の過去分を足したときも作り直します）。</p>';
+  const md = s => s ? `${s.slice(0, 4)}/${+s.slice(4, 6)}/${+s.slice(6, 8)}` : '';
+  const signs = st.signs || [], C = st.cells || {};
+  const head = `<div class="tw stbox"><div class="sth">パドック診断 <b>${st.horses.toLocaleString()}頭</b>（${st.days}日・${st.races}R）と結果を、開催のあとに数え直しています。<br>${md(st.from)}〜${md(st.to)}・${esc(st.at || '')} 作成</div>` +
+    `<p class="sub">見込み＝単勝オッズから出した3着内の確率（みんなの評価）。差が＋の見え方は、オッズより走っている。たくさんの組（${st.tests}組）を比べているので、偶然でも±2〜3ポイントの差はよく出ます。「見えてきた」は偶然の分を差し引いても残ったものだけです。予想・買い目には入れていません。</p></div>`;
+  const F = st.found || [], T = st.trend || [];
+  const found = `<h3 class="s">見えてきたこと</h3>` + (F.length ? `<div class="tw"><ul class="lst stl">${F.slice(0, 12).map(f => stItem(st, f)).join('')}</ul></div>` :
+    '<p class="sub">まだありません。数が増えて、偶然では説明できない差が出たら、ここに出ます。</p>');
+  const trend = T.length ? fold('st.trend', '傾向（まだ偶然かもしれない）', `${Math.min(T.length, 8)}件`, `<ul class="lst stl">${T.slice(0, 8).map(f => stItem(st, f)).join('')}</ul><p class="sub">偶然でも出る大きさの差です。数が増えても残るかを見ていきます。</p>`, true) : '';
+  // 条件で見る／見え方で見る
+  const ctxOpts = (st.ctx || []).map(g => {
+    const vs = g.vals.filter(v => C[`${g.id}:${v}`]);
+    return vs.length ? `<optgroup label="${esc(g.name)}">${vs.map(v => `<option value="${esc(g.id + ':' + v)}"${S.stCtx === g.id + ':' + v ? ' selected' : ''}>${esc(g.id === 'all' ? '全部' : v)}</option>`).join('')}</optgroup>` : '';
+  }).join('');
+  let grpPrev = '';
+  const byCtx = () => {
+    const c = C[S.stCtx] ? S.stCtx : 'all:全部', cs = C[c] || {}, b = (st.base || {})[c];
+    const rows = signs.filter(x => cs[x.id]).map(x => { const g = x.grp !== grpPrev ? `<tr class="grp"><td colspan="5">${esc(x.grp)}</td></tr>` : ''; grpPrev = x.grp; return g + stRow(esc(x.name), cs[x.id]); }).join('');
+    return `<select id="stCtx" class="stsel" aria-label="条件">${ctxOpts}</select>` +
+      `<div class="tw"><div class="scroll"><table class="st2 stt">${stHead('見え方')}${b ? `<tr class="sum"><td>この条件の全部の馬</td><td>${b[0]}</td><td>${b[1].toFixed(1)}%</td><td>${b[2].toFixed(1)}%</td>${stDiffTd(b)}</tr>` : ''}${rows || '<tr><td colspan="5">数が足りません</td></tr>'}</table></div></div>`;
+  };
+  const bySign = () => {
+    const sg = signs.find(x => x.id === S.stSign) || signs[0];
+    const opts = signs.map(x => `<option value="${esc(x.id)}"${x.id === sg.id ? ' selected' : ''}>${esc(x.grp)}：${esc(x.name)}</option>`).join('');
+    const rows = (st.ctx || []).map(g => {
+      const vs = g.vals.filter(v => (C[`${g.id}:${v}`] || {})[sg.id]);
+      if (!vs.length) return '';
+      return (g.id === 'all' ? '' : `<tr class="grp"><td colspan="5">${esc(g.name)}</td></tr>`) + vs.map(v => stRow(esc(g.id === 'all' ? '全部' : v), C[`${g.id}:${v}`][sg.id])).join('');
+    }).join('');
+    return `<select id="stSign" class="stsel" aria-label="見え方">${opts}</select><div class="tw"><div class="scroll"><table class="st2 stt">${stHead('条件')}${rows || '<tr><td colspan="5">数が足りません</td></tr>'}</table></div></div>`;
+  };
+  const look = `<h3 class="s">条件ごとに見る</h3><div class="seg"><button type="button" data-stmode="ctx" class="${S.stMode === 'ctx' ? 'on' : ''}">条件を選ぶ</button><button type="button" data-stmode="sign" class="${S.stMode === 'sign' ? 'on' : ''}">見え方を選ぶ</button></div>` +
+    (S.stMode === 'sign' ? bySign() : byCtx()) + `<p class="sub">差＝3着内の実際−見込み（ポイント）。色は偶然では出にくい大きさ（緑＝オッズより走る・赤＝走らない）。${st.minN}頭より少ない組は出していません。</p>`;
+  // 人気とパドック
+  const PB = ['1〜3番人気', '4〜6番人気', '7〜9番人気', '10〜12番人気', '13番人気以下'], pv = (p, t) => ((st.pop || []).find(x => x.pop === p && x.th === t) || {}).v;
+  const pop = `<div class="tw"><div class="scroll"><table class="st2 stt"><tr><th>人気</th><th>パドック上位</th><th>中</th><th>下位</th></tr>${PB.map(p => `<tr><td>${p}</td>${['top', 'mid', 'bot'].map(t => stDiffTd(pv(p, t), true)).join('')}</tr>`).join('')}</table></div></div>` +
+    '<p class="sub">同じレースの結果。パドックの位置はレースの中の3等分（同じ点で並んだ馬は、並んだ順位の真ん中で数えます）。</p>';
+  // 次走
+  const NX = [['全部', ''], ['3着内', ''], ['3着内', 'top'], ['3着内', 'bot'], ['激走', ''], ['激走', 'top'], ['激走', 'bot'], ['凡走', ''], ['凡走', 'top'], ['凡走', 'bot']];
+  const NXN = { '全部': '全部の馬', '3着内': '3着内', '激走': '激走', '凡走': '凡走' };
+  const nv = (k, t, c) => { const v = (st.next || {})[`${k}|${t}|${c}`]; return v && v[0] >= 15 ? v : null; };
+  const nxt = `<div class="tw"><div class="scroll"><table class="st2 stt"><tr><th>前走</th><th>次走 全部</th><th>同級</th><th>昇級</th><th>降級</th></tr>${NX.map(([k, t]) => `<tr><td>${esc(NXN[k])}${t ? `・${ST_TH[t]}` : ''}</td>${['', '同級', '昇級', '降級'].map(c => stDiffTd(nv(k, t, c), true)).join('')}</tr>`).join('')}</table></div></div>` +
+    '<p class="sub">パドック診断のあったレースの、次の出走の3着内（実際−見込み）。激走＝6番人気以下で3着内、凡走＝3番人気以内で6着以下。クラスは前走→次走で同じ・上がった・下がった。15頭より少ない組は「-」。</p>';
+  // 同じ馬の流れ
+  const fl = st.flow || {}, its = Object.entries(fl.items || {}).map(([k, v]) => `${esc(k)} ${v.r >= 0 ? '+' : ''}${v.r.toFixed(2)}`).join('・');
+  const rep = (fl.repeat || []).slice(0, 8).map(x => `<li><b>${esc(x.name)}</b>：前回あった馬は今回も ${x.again}%（全体 ${x.base}%・${x.lift}倍）<span class="sub">　${x.n}頭</span></li>`).join('');
+  const flow = `<div class="tw stbox"><div class="sth">同じ馬を続けて診断できた <b>${(fl.pairs || 0).toLocaleString()}組</b></div>` +
+    `<p class="sub">パドックの順位（レースの中の位置）の、前回と今回の相関 <b>${fl.rankR != null ? (fl.rankR >= 0 ? '+' : '') + fl.rankR.toFixed(2) : '-'}</b>（1に近いほど、同じ馬は毎回同じような評価）。項目ごと：${its || '-'}</p>` +
+    (rep ? `<div class="sth">くり返しやすいサイン（その馬のくせ）</div><ul class="lst stl">${rep}</ul>` : '') + '</div>';
+  // 人気とパドックの差の大きさ（2026/10/11 ご要望：差が少ない馬は安定する？極端な差はリスク？）
+  const GT = st.gapT || {}, gpop = (st.gapP || []).find(x => x.id === S.stPop) ? S.stPop : 'all';
+  const GR = [['S', '', 'ほぼ同じ（差2以内）'], ['M3', 'up', '差3〜5・パドックが上'], ['M3', 'dn', '差3〜5・パドックが下'], ['M6', 'up', '差6〜8・パドックが上'], ['M6', 'dn', '差6〜8・パドックが下'], ['L', 'up', '差9以上・パドックが上'], ['L', 'dn', '差9以上・パドックが下']];
+  const gRows = GR.map(([b, d, nm]) => { const v = GT[`${b}|${d}|${gpop}`]; return v && v[0] >= 20 ? `<tr><td>${nm}</td>${stDiffTd(v, true)}<td>${v[6].toFixed(1)}%</td><td>${v[5] != null ? v[5] + '%' : '-'}</td></tr>` : ''; }).join('');
+  const gap = gRows ? `<div class="seg">${(st.gapP || []).map(x => `<button type="button" data-stpop="${esc(x.id)}" class="${x.id === gpop ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div>` +
+    `<div class="tw"><div class="scroll"><table class="st2 stt"><tr><th>人気とパドック</th><th>3着内の差</th><th>6着以上ずれた</th><th>複勝回収</th></tr>${gRows}</table></div></div>` +
+    '<p class="sub">差＝人気の順番−パドックの順位。3着内の差＝実際−見込み。「6着以上ずれた」＝着順が人気の順番から6つ以上離れた割合（成績のぶれ）。20頭より少ない組は出していません。</p>' : '';
+  // 見比べと1頭ずつ（同じ馬で、2つの見方のどちらが結果に合うか）
+  const TW = st.two || {}, twRows = signs.filter(x => TW[x.id] && (TW[x.id][0] || TW[x.id][1])).map(x => `<tr><td>${esc(x.name)}</td>${stDiffTd(TW[x.id][0] && TW[x.id][0][0] >= st.minN ? TW[x.id][0] : null, true)}${stDiffTd(TW[x.id][1] && TW[x.id][1][0] >= st.minN ? TW[x.id][1] : null, true)}</tr>`).join('');
+  const two = twRows ? `<div class="tw"><div class="scroll"><table class="st2 stt"><tr><th>見え方</th><th>見比べ</th><th>1頭ずつ</th></tr>${twRows}</table></div></div>` +
+    `<p class="sub">同じ馬（${(st.twoN || 0).toLocaleString()}頭）を、全馬を並べて見比べた値（点数はこちら）と、1頭ずつ見た値で比べたもの。差＝3着内の実際−見込み。どちらの見方が結果に合うかを見ていきます。</p>` : '';
+  // 進み具合
+  const H = (st.hist || []).slice(-8).reverse();
+  const hist = H.length ? `<div class="tw"><div class="scroll"><table class="st2 stt"><tr><th>作った時</th><th>日数</th><th>頭数</th><th>見えてきた</th></tr>${H.map(h => `<tr><td>${esc(h.at || '')}</td><td>${h.days}</td><td>${(h.horses || 0).toLocaleString()}</td><td>${h.found}件</td></tr>`).join('')}</table></div></div>` : '';
+  return head + found + trend + look +
+    fold('st.pop', '人気とパドック', '', pop) + (gap ? fold('st.gap', '人気とパドックの差の大きさ', '', gap) : '') + fold('st.next', '次走（前走の形 × クラスの変わり方）', '', nxt) + fold('st.flow', '同じ馬の流れ', '', flow) +
+    (two ? fold('st.two', '見比べと1頭ずつ、どちらが合うか', '', two) : '') + (hist ? fold('st.hist', '勉強の進み具合', '', hist) : '');
 }
 $('#rvDay').addEventListener('change', e => { S.rvDay = e.target.value; renderReview(); });
 function kpiHtml(K, lab) {   // 着順の当たり具合：オッズなしの見立て・最終の予想・人気順
@@ -964,6 +1116,14 @@ function pdkHtml(T, lab) {   // パドックの点と結果（予想の3着内�
   return `<h3 class="s">パドック診断と結果（${lab}）</h3><div class="tw"><table class="st2"><tr><th>パドック</th><th>頭数</th><th>予想の3着内</th><th>実際</th><th>差</th></tr>${rows}</table></div>` +
     '<p class="sub">パドックの点が良かった馬が、予想の3着内率より来たかどうか。予想にはまだ入れていません。積み上がって差がはっきりしたら、予想に入れるかを決めます。</p>';
 }
+function wShHtml(W, lab, day) {   // 勝負レースW「好調な日に伸ばしていたら」（記録だけ・買い方は変えない。2026/10/11 ご提案）
+  if (!W) return '';
+  const e = W.ext || {}, d = W.dbl || {};
+  const row = (nm, x) => { const pm = (x.ret || 0) - (x.cost || 0); return `<tr><td>${nm}</td><td>${x.n || 0}</td><td>${yen(x.cost || 0)}</td><td>${yen(x.ret || 0)}</td><td class="${cls(pm)}">${sgn(pm)}</td></tr>`; };
+  return `<h3 class="s">W：好調な日に伸ばしていたら（${lab}・記録だけ）</h3><div class="tw"><div class="scroll"><table class="st2"><tr><th></th><th>R</th><th>投資</th><th>払戻</th><th>収支</th></tr>` +
+    `${row('レースを足していたら', e)}${row('次のWを2倍にしていたら', d)}</table></div></div>` +
+    `<p class="sub">その時点で確定していたWのプラスの範囲でだけ（外れても今日はプラスのまま）。足す＝上限（1日5R）で見送ったレースを1日3Rまで。2倍＝増やした分だけの投資と払戻。${day && W.cand != null ? `この日に上限で見送ったレース ${W.cand}R。` : W.days ? `${W.days}日分。` : ''}過去4年の試算：足す −8.7万円・2倍 +2.0万円。買い方は変えていません。</p>`;
+}
 function reviewHtml(r, tot) {
   if (!r) return '<p class="empty">読めませんでした</p>';
   const s = r.summary || {}, pk = s.pk || {}, sh = s.shape || {};
@@ -978,6 +1138,7 @@ function reviewHtml(r, tot) {
       <div class="card"><div class="k">位置取りの当たり</div><div class="v">${sh.posCorr != null ? sh.posCorr.toFixed(2) : '-'}</div></div></div>
     ${trackHtml(s.track, 'この日')}
     ${rec && rec.track ? trackHtml(rec.track, '直近8週') : ''}
+    ${wShHtml(r.wShadow, 'この日', true)}${rec && rec.wShadow ? wShHtml(rec.wShadow, '直近8週') : ''}
     <h3 class="s">買い方ごとの成績（この日）</h3>
     <div class="tw"><div class="scroll"><table class="st2"><tr><th>買い方</th><th>R</th><th>的中</th><th>購入</th><th>払戻</th><th>回収率</th></tr>${top.map(row).join('')}${rest.length && top.length ? '<tr class="grp"><td colspan="6">予想の買い目を100円ずつ買った場合</td></tr>' : ''}${rest.map(row).join('')}</table></div></div>
     ${pdkHtml(s.paddock, 'この日')}${rec && rec.paddock ? pdkHtml(rec.paddock, '直近8週') : ''}
