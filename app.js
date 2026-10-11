@@ -122,7 +122,7 @@ const S = {
   tab: storeGet('gatein_tab2') || 'today', venue: storeGet('gatein_venue') || '', race: {},
   fold: jsonGet('gatein_vfold', {}), pdAll: storeGet('gatein_pdall2') === 'all', tcOn: storeGet('gatein_tc') !== '0', pl: null, rv: {},
   rsub: storeGet('gatein_rsub') === 'pdk' ? 'pdk' : 'pred', rvSub: storeGet('gatein_rvsub') === 'study' ? 'study' : 'day',
-  stMode: storeGet('gatein_stmode') === 'sign' ? 'sign' : 'ctx', stCtx: storeGet('gatein_stctx') || 'all:全部', stSign: storeGet('gatein_stsign') || 'top', stPop: storeGet('gatein_stpop') || 'all', pkSort: ['no', 'gap', 'fin'].includes(storeGet('gatein_pksort')) ? storeGet('gatein_pksort') : 'rank'
+  stMode: storeGet('gatein_stmode') === 'sign' ? 'sign' : 'ctx', stCtx: storeGet('gatein_stctx') || 'all:全部', stSign: storeGet('gatein_stsign') || 'top', stPop: storeGet('gatein_stpop') || 'all', stLow: storeGet('gatein_stlow') === '1-5' ? '1-5' : '1-3', stTp: storeGet('gatein_sttp') || 'all', pkSort: ['no', 'gap', 'fin'].includes(storeGet('gatein_pksort')) ? storeGet('gatein_pksort') : 'rank'
 };
 const foldOpen = (id, def) => S.fold[id] == null ? !!def : !!S.fold[id];
 function fold(id, title, right, body, def, sub) {   // 折りたためる欄（開け閉めは覚える）
@@ -989,7 +989,11 @@ $('#review').addEventListener('click', e => {
   const m = e.target.closest('button[data-stmode]');
   if (m) { S.stMode = m.dataset.stmode; storeSet('gatein_stmode', S.stMode); renderReview(); return; }
   const gp = e.target.closest('button[data-stpop]');
-  if (gp) { S.stPop = gp.dataset.stpop; storeSet('gatein_stpop', S.stPop); renderReview(); }
+  if (gp) { S.stPop = gp.dataset.stpop; storeSet('gatein_stpop', S.stPop); renderReview(); return; }
+  const lw = e.target.closest('button[data-stlow]');
+  if (lw) { S.stLow = lw.dataset.stlow; storeSet('gatein_stlow', S.stLow); renderReview(); return; }
+  const tp = e.target.closest('button[data-sttp]');
+  if (tp) { S.stTp = tp.dataset.sttp; storeSet('gatein_sttp', S.stTp); renderReview(); }
 });
 $('#review').addEventListener('change', e => {
   if (e.target.id === 'stCtx') { S.stCtx = e.target.value; storeSet('gatein_stctx', S.stCtx); renderReview(); }
@@ -1067,10 +1071,30 @@ function studyHtml(st) {
   // 人気とパドックの差の大きさ（2026/10/11 ご要望：差が少ない馬は安定する？極端な差はリスク？）
   const GT = st.gapT || {}, gpop = (st.gapP || []).find(x => x.id === S.stPop) ? S.stPop : 'all';
   const GR = [['S', '', 'ほぼ同じ（差2以内）'], ['M3', 'up', '差3〜5・パドックが上'], ['M3', 'dn', '差3〜5・パドックが下'], ['M6', 'up', '差6〜8・パドックが上'], ['M6', 'dn', '差6〜8・パドックが下'], ['L', 'up', '差9以上・パドックが上'], ['L', 'dn', '差9以上・パドックが下']];
-  const gRows = GR.map(([b, d, nm]) => { const v = GT[`${b}|${d}|${gpop}`]; return v && v[0] >= 20 ? `<tr><td>${nm}</td>${stDiffTd(v, true)}<td>${v[6].toFixed(1)}%</td><td>${v[5] != null ? v[5] + '%' : '-'}</td></tr>` : ''; }).join('');
+  const devTd = v => {   // 着順のぶれ：人気の順番からのずれを、同じ人気・同じくらいの頭数の馬と比べた差（−なら安定）
+    if (!v || v[8] == null) return '<td class="stn">-</td>';
+    const c = Math.abs(v[8]) >= 2 * (v[9] || 0) && v[9] ? (v[8] < 0 ? 'stp' : 'stm') : 'stn';
+    return `<td class="${c}"><b>${v[8] > 0 ? '+' : ''}${v[8].toFixed(2)}着</b><small>平均${v[7].toFixed(2)}着</small></td>`;
+  };
+  const gRows = GR.map(([b, d, nm]) => { const v = GT[`${b}|${d}|${gpop}`]; return v && v[0] >= 20 ? `<tr><td>${nm}</td>${stDiffTd(v, true)}${devTd(v)}<td>${v[5] != null ? v[5] + '%' : '-'}</td></tr>` : ''; }).join('');
+  const PC = st.pdkCoef, pcTxt = PC ? (Math.abs(PC.pdk) < 2 * PC.se ? '今は0と区別がつきません（パドックの順位は、人気以上に着順を言い当てていない）' : PC.pdk > 0 ? 'パドックの順位が良い馬ほど、人気から見込むより着順が良い' : 'パドックの順位が良い馬ほど、人気から見込むより着順が悪い') : '';
   const gap = gRows ? `<div class="seg">${(st.gapP || []).map(x => `<button type="button" data-stpop="${esc(x.id)}" class="${x.id === gpop ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div>` +
-    `<div class="tw"><div class="scroll"><table class="st2 stt"><tr><th>人気とパドック</th><th>3着内の差</th><th>6着以上ずれた</th><th>複勝回収</th></tr>${gRows}</table></div></div>` +
-    '<p class="sub">差＝人気の順番−パドックの順位。3着内の差＝実際−見込み。「6着以上ずれた」＝着順が人気の順番から6つ以上離れた割合（成績のぶれ）。20頭より少ない組は出していません。</p>' : '';
+    `<div class="tw"><div class="scroll"><table class="st2 stt"><tr><th>人気とパドック</th><th>3着内の差</th><th>着順のぶれ</th><th>複勝回収</th></tr>${gRows}</table></div></div>` +
+    '<p class="sub">差＝人気の順番−パドックの順位。3着内の差＝実際−見込み。着順のぶれ＝着順が人気の順番からどれだけ離れたかを、同じ人気・同じくらいの頭数の馬と比べた差（−なら安定・＋ならぶれやすい。緑・赤は偶然では出にくい大きさ）。差の大きい馬は頭数の多いレースに多いので、そのまま比べるとぶれが大きく見えます。20頭より少ない組は出していません。</p>' +
+    (PC ? `<p class="sub">人気を考えに入れたうえで、パドックの順位が着順を言い当てる強さ：<b>${PC.pdk > 0 ? '+' : ''}${PC.pdk.toFixed(3)}</b>（±${PC.se.toFixed(3)}・${PC.n.toLocaleString()}頭）。${pcTxt}。</p>` : '') : '';
+  // 人気馬なのにパドック下位：理由ごと（2026/10/11 ご提案：人気馬を下にしたのに来るなら、チャカつきか気合いかを見極める）
+  const LF = (st.lowFav || {})[S.stLow] || {}, lrows = (LF['全部'] ? `<tr class="sum"><td>人気馬 全部</td>${stDiffTd(LF['全部'], true)}<td>${LF['全部'][5] ?? '-'}%</td></tr>` : '') +
+    (LF['下位'] ? `<tr><td><b>パドック下位</b></td>${stDiffTd(LF['下位'], true)}<td>${LF['下位'][5] ?? '-'}%</td></tr>` : '') +
+    (st.lowReasons || []).filter(k => LF[k] && LF[k][0] >= 15).map(k => `<tr><td>　理由：${esc(k)}</td>${stDiffTd(LF[k], true)}<td>${LF[k][5] ?? '-'}%</td></tr>`).join('');
+  const lowFav = LF['全部'] ? `<div class="seg"><button type="button" data-stlow="1-3" class="${S.stLow === '1-3' ? 'on' : ''}">1〜3番人気</button><button type="button" data-stlow="1-5" class="${S.stLow === '1-5' ? 'on' : ''}">1〜5番人気</button></div>` +
+    `<div class="tw"><div class="scroll"><table class="st2 stt"><tr><th>人気馬</th><th>3着内の差</th><th>複勝回収</th></tr>${lrows}</table></div></div>` +
+    '<p class="sub">パドック下位＝レースの中で下位1/3、か人気より6つ以上下。理由はパドックの点が下がった項目（1頭に複数あれば、それぞれで数えます）。差＝3着内の実際−見込み。</p>' : '';
+  // テンションの見分け：気合い寄り／落ち着かない寄り
+  const TS = (st.tens || {})[S.stTp] || (st.tens || {}).all || {};
+  const tsRows = (st.tensN || []).filter(t => TS[t.id] && TS[t.id][0] >= 20).map(t => `<tr><td>${esc(t.name)}</td>${stDiffTd(TS[t.id], true)}<td>${TS[t.id][4] ?? '-'}%</td><td>${TS[t.id][5] ?? '-'}%</td></tr>`).join('');
+  const tens = tsRows ? `<div class="seg">${(st.gapP || []).map(x => `<button type="button" data-sttp="${esc(x.id)}" class="${x.id === S.stTp ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div>` +
+    `<div class="tw"><div class="scroll"><table class="st2 stt"><tr><th>テンション</th><th>3着内の差</th><th>単勝回収</th><th>複勝回収</th></tr>${tsRows}</table></div></div>` +
+    '<p class="sub">気合い寄り＝テンション+1でも、制御（綱）と首の使い方がふつう以上で物見なし。落ち着かない寄り＝綱が張る・首が固い・物見のどれか。いまのAIは+2を付けるとき、ほぼ必ず制御か首も下げるので、+2の中では「気合い」と「チャカつき」をまだ分けられません。</p>' : '';
   // 見比べと1頭ずつ（同じ馬で、2つの見方のどちらが結果に合うか）
   const TW = st.two || {}, twRows = signs.filter(x => TW[x.id] && (TW[x.id][0] || TW[x.id][1])).map(x => `<tr><td>${esc(x.name)}</td>${stDiffTd(TW[x.id][0] && TW[x.id][0][0] >= st.minN ? TW[x.id][0] : null, true)}${stDiffTd(TW[x.id][1] && TW[x.id][1][0] >= st.minN ? TW[x.id][1] : null, true)}</tr>`).join('');
   const two = twRows ? `<div class="tw"><div class="scroll"><table class="st2 stt"><tr><th>見え方</th><th>見比べ</th><th>1頭ずつ</th></tr>${twRows}</table></div></div>` +
@@ -1079,7 +1103,8 @@ function studyHtml(st) {
   const H = (st.hist || []).slice(-8).reverse();
   const hist = H.length ? `<div class="tw"><div class="scroll"><table class="st2 stt"><tr><th>作った時</th><th>日数</th><th>頭数</th><th>見えてきた</th></tr>${H.map(h => `<tr><td>${esc(h.at || '')}</td><td>${h.days}</td><td>${(h.horses || 0).toLocaleString()}</td><td>${h.found}件</td></tr>`).join('')}</table></div></div>` : '';
   return head + found + trend + look +
-    fold('st.pop', '人気とパドック', '', pop) + (gap ? fold('st.gap', '人気とパドックの差の大きさ', '', gap) : '') + fold('st.next', '次走（前走の形 × クラスの変わり方）', '', nxt) + fold('st.flow', '同じ馬の流れ', '', flow) +
+    fold('st.pop', '人気とパドック', '', pop) + (gap ? fold('st.gap', '人気とパドックの差の大きさ', '', gap) : '') +
+    (lowFav ? fold('st.low', '人気馬なのにパドック下位（理由ごと）', '', lowFav) : '') + (tens ? fold('st.tens', 'テンションの見分け（気合い寄り・落ち着かない寄り）', '', tens) : '') + fold('st.next', '次走（前走の形 × クラスの変わり方）', '', nxt) + fold('st.flow', '同じ馬の流れ', '', flow) +
     (two ? fold('st.two', '見比べと1頭ずつ、どちらが合うか', '', two) : '') + (hist ? fold('st.hist', '勉強の進み具合', '', hist) : '');
 }
 $('#rvDay').addEventListener('change', e => { S.rvDay = e.target.value; renderReview(); });
