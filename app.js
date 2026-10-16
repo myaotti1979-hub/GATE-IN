@@ -331,7 +331,7 @@ function kRes(l) {   // 転がし1回分の結果
   if (l.prov != null) return l.refund ? '返還（取消・除外）' : l.prov ? `当たり（仮 ${yen(l.prov)}）` : '外れ';
   return '結果待ち';
 }
-const kBuyMode = (X, K) => { const live = ((K && K.legs) || []).filter(l => !l.cancel); if (live.length) return live.every(l => l.buy) ? '実際に買う' : live[0].buy ? '途中から記録だけ' : '記録だけ'; const on = S.status && S.status.settings && S.status.settings.korogashi; return X.d === todayStr() ? (on ? '実際に買う' : '記録だけ') : ''; };
+const kBuyMode = (X, K) => { const live = ((K && K.legs) || []).filter(l => !l.cancel); if (live.length) return live.every(l => l.buy) ? '実際に買う' : live[0].buy ? '途中から記録だけ' : '記録だけ'; const on = S.status && S.status.settings && S.status.settings.korogashi && !S.status.settings.paper; return X.d === todayStr() ? (on ? '実際に買う' : '記録だけ') : ''; };
 
 // 買い目の行（Wの計画：買い方ごと）。1点なら組と馬名、何点もある買い方は使う馬
 function planLines(X, k, plan, lab) {
@@ -403,6 +403,7 @@ function renderToday() {
     const hb = S.hb, min = hb ? Math.round((Date.now() / 1000 - hb.t) / 60) : 999;
     if (min > 10) state = `<div class="state warn">家のパソコンの写しが${hb ? ` ${esc(hb.at)} から` : ''}止まっています。家のPCで GATE IN が動いているか確かめてください</div>`;
     else if (!se.enabled) state = '<div class="state warn">自動投票は止まっています（家のPCで「開始」を押すと買います）</div>';
+    else if (se.paper) state = `<div class="state">買わずに記録だけ（本番と同じように決めて記録。即PATでは買いません）${st.state && st.state.msg ? '<br>' + esc(st.state.msg) : ''}</div>`;
     else if (st.state && st.state.msg) state = `<div class="state">${esc(st.state.msg)}</div>`;
   }
   let h = `<div class="sum"><div class="hd"><span>${today ? '今日' : 'この日'}の収支（実際に買った分）</span><b>${mdw(d)}</b></div>
@@ -438,7 +439,7 @@ function renderToday() {
   box.innerHTML = h;
 }
 function kCardHtml(X, today) {
-  const sb = X.sb || {}, K = sb.K, on = S.status && S.status.settings && S.status.settings.korogashi;
+  const sb = X.sb || {}, K = sb.K, on = S.status && S.status.settings && S.status.settings.korogashi && !S.status.settings.paper;
   if (!K) {
     if (!today || !on) return '';
     const ts = raceKeys(X).map(k => tmin(meta(X, k).time)).filter(t => t != null), first = ts.length ? Math.min(...ts) : null;
@@ -543,6 +544,7 @@ function predStats(X, venue) {
       const p = (r.pk || {})[id]; if (!p || !(p.keys || []).length) continue;
       const got = p.keys.reduce((s, key) => s + (((R.payout[p.type] || {})[key]) || 0), 0), inv = p.keys.length * 100;
       const t = T[id] || (T[id] = { n: 0, hit: 0, inv: 0, ret: 0 }); t.n++; t.inv += inv; t.ret += got; if (got) t.hit++;
+      if (got > (t.max || 0)) { const m = meta(X, k); t.max = got; t.maxR = `${m.track}${m.no}R`; }   // 最高払戻とそのレース（2026/10/12）
     }
   }
   return { T, n };
@@ -551,10 +553,12 @@ function predStatsHTML(sv) {
   const ids = PK_IDS.filter(id => sv.T[id]); if (!ids.length) return '';
   const roi = x => x.inv ? Math.round(x.ret / x.inv * 100) + '%' : '-', nm = v => Math.round(v).toLocaleString('ja-JP');
   const all = ids.reduce((s, id) => ({ inv: s.inv + sv.T[id].inv, ret: s.ret + sv.T[id].ret }), { inv: 0, ret: 0 });
-  const row = (l, x, c) => `<tr${c ? ` class="${c}"` : ''}><td>${l}</td><td>${x.n ?? ''}</td><td>${x.hit ?? ''}</td><td>${nm(x.inv)}</td><td>${nm(x.ret)}</td><td class="${cls(x.ret - x.inv)}">${roi(x)}</td></tr>`;
-  return `<div class="tw"><div class="scroll"><table class="st2"><tr><th>買い方</th><th>R</th><th>的中</th><th>投資</th><th>払戻</th><th>回収率</th></tr>` +
+  // 右に「的中時の平均払戻」「最高払戻（そのレース）」（2026/10/12 ご要望）
+  const avg = x => x.hit ? nm(x.ret / x.hit) : (x.n != null ? '-' : ''), mx = x => x.max ? `${nm(x.max)} <span class="sub">${esc(x.maxR)}</span>` : (x.n != null ? '-' : '');
+  const row = (l, x, c) => `<tr${c ? ` class="${c}"` : ''}><td>${l}</td><td>${x.n ?? ''}</td><td>${x.hit ?? ''}</td><td>${nm(x.inv)}</td><td>${nm(x.ret)}</td><td class="${cls(x.ret - x.inv)}">${roi(x)}</td><td>${avg(x)}</td><td>${mx(x)}</td></tr>`;
+  return `<div class="tw"><div class="scroll"><table class="st2"><tr><th>買い方</th><th>R</th><th>的中</th><th>投資</th><th>払戻</th><th>回収率</th><th>的中時の平均</th><th>最高払戻</th></tr>` +
     ids.map(id => row(esc(PK[id] || id), sv.T[id])).join('') + row('合計', { inv: all.inv, ret: all.ret }, 'sum') + `</table></div></div>` +
-    '<p class="sub">保存した予想の買い目を100円ずつ買った場合（結果が出たレース・金額は円）。実際に買った馬券とは別です。</p>';
+    '<p class="sub">保存した予想の買い目を100円ずつ買った場合（結果が出たレース・金額は円）。的中時の平均＝払戻÷的中したレース数。実際に買った馬券とは別です。</p>';
 }
 
 // ============ レース ============
@@ -694,7 +698,7 @@ function paddockHtml(X, k) {
     `${dns.length ? `<div><b class="dn">人気よりパドックが悪い</b>${dns.map(x => `<span>${nm(x.h)}（${popOf(x.h)}人気→${x.pk.rank}位）</span>`).join('')}</div>` : ''}</div>` : '';
   const cards = rows.map(({ h, pk, gap, f, fg, pf }) => {
     const q = pr[h.no], pop = popOf(h);
-    const head = `<div class="pch">${uChip(h.no, h.w)}<b>${esc(h.name || (q && q.name) || '')}</b>${f ? `<span class="sub">・<b class="${f <= 3 ? 'plus' : ''}">${f}着</b></span>` : ''}</div>` +
+    const head = `<div class="pch">${uChip(h.no, h.w)}<b>${esc(h.name || (q && q.name) || '')}</b>${pkGearTags(pk)}${f ? `<span class="sub">・<b class="${f <= 3 ? 'plus' : ''}">${f}着</b></span>` : ''}</div>` +
       `<div class="pgap"><span><i>人気</i><b>${pop ? pop + '番' : '-'}</b></span><span><i>パドック</i><b>${pk && pk.rank != null ? pk.rank + '位' : '-'}</b>${pk && pk.tie && pk.tie.n > 1 ? `<small class="pti">同点${pk.tie.n}頭</small>` : ''}</span>` +
       `<span class="${gapCls(gap)}"><i>差</i><b>${gap == null ? '-' : (gap > 0 ? '+' : '') + gap}</b><small>${gapTxt(gap)}</small></span></div>` +
       (done ? `<div class="pgap pres"><span class="${f && f <= 3 ? 'f3' : ''}"><i>着順</i><b>${f ? f + '着' : '-'}</b></span>` +
@@ -744,6 +748,9 @@ function chkListHtml(X) {   // その日のチェック馬（発走の順）
     `<p class="sub">${CHK_NOTE}</p>`;
   return fold('t.chk', `チェック馬（前走 激走・凡走）${items.length}頭`, `激走${nj}・凡走${items.length - nj}`, body);
 }
+const PDK_GEAR_SKIP = ['メンコ', 'バンデージ'];   // メンコ・バンデージは馬具として出さない（2026/10/12 ご指示）
+const PDK_GEAR_S = { 'チークピーシーズ': 'チーク', 'シャドーロール': 'シャドーロール', 'ホライゾネット': 'ホライゾネット', 'パシュファイヤー': 'パシュファイヤー', 'その他': '馬具ほか' };
+const pkGearTags = pk => (pk && pk.gear || []).filter(g => g && !PDK_GEAR_SKIP.includes(g)).map(g => `<span class="pkgear" style="font-size:12px;border:1px solid var(--line);border-radius:4px;padding:0 4px;color:var(--muted);white-space:nowrap">${esc(PDK_GEAR_S[g] || g)}</span>`).join('');   // 馬具は馬名の横に（2026/10/12 ご指示）
 function pkInfoOf(X, k) { return X.pdk && X.pdk[k] ? X.pdk[k].horses || {} : null; }
 function predTable(X, k) {
   const p = X.pd[k], c = X.cd[k], r = X.res[k], done = isDone(r);
@@ -1256,9 +1263,9 @@ function renderSetting() {
   const types = (se.types || []).map(t => t === 'shobuW' ? '勝負レースW' : PK[t] || t).join('・') || 'なし';
   const th = storeGet('gatein_theme') || 'auto';
   $('#setting').innerHTML = `<h3 class="s" style="margin-top:4px">自動投票（家のPCの設定）</h3><div class="tw"><table class="kv">
-    <tr><td>自動投票</td><td>${se.enabled ? '<b class="plus">ON</b>' : 'OFF'}</td></tr>
+    <tr><td>自動投票</td><td>${se.enabled ? (se.paper ? '<b>ON（買わずに記録だけ）</b>' : '<b class="plus">ON</b>') : 'OFF'}</td></tr>
     <tr><td>買い方</td><td>${esc(types)}</td></tr>
-    <tr><td>複勝転がし</td><td>${se.korogashi ? '<b class="plus">買う</b>（1,000円から・1日5R・負けの上限の外）' : '買わない（記録だけ）'}</td></tr>
+    <tr><td>複勝転がし</td><td>${se.korogashi && !se.paper ? '<b class="plus">買う</b>（1,000円から・1日5R・負けの上限の外）' : '買わない（記録だけ）'}</td></tr>
     <tr><td>1日の負けの上限</td><td>${se.dayLoss ? yen(se.dayLoss) : 'なし'}</td></tr>
     <tr><td>締切の何分前に判断</td><td>${se.closeOffset ?? se.beforeClose ?? '-'}分</td></tr>
     <tr><td>いまの状態</td><td>${esc(sa.msg || sa.need || '-')}</td></tr></table></div>
