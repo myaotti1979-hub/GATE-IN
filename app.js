@@ -206,7 +206,9 @@ function renderHome() {
   const hb = S.hb;
   if (!hb) { $('#home').textContent = '家のPC：記録なし'; return; }
   const min = Math.round((Date.now() / 1000 - hb.t) / 60);
-  $('#home').innerHTML = (min <= 10 ? '<span class="ok">家のPC 動作中</span>' : '<span class="ng">家のPC 止まっている？</span>') + `<br>${esc(hb.at)} の写し${min > 1 ? `（${min}分前）` : ''}`;
+  const W = min <= 10 ? (((S.status || {}).warn) || []).filter(Boolean) : [];   // 家のPCで気をつけること（パドックのログイン切れなど。2026/10/24）
+  $('#home').innerHTML = (min <= 10 ? '<span class="ok">家のPC 動作中</span>' : '<span class="ng">家のPC 止まっている？</span>') + `<br>${esc(hb.at)} の写し${min > 1 ? `（${min}分前）` : ''}` +
+    W.map(w => `<br><span class="ng">${esc(w)}</span>`).join('');
 }
 async function reload() {
   const b = $('#reload'); b.disabled = true; b.textContent = '読込中';
@@ -1340,6 +1342,29 @@ function wShHtml(W, lab, day) {   // 勝負レースW「好調な日に伸ばし
     `${row('レースを足していたら', e)}${row('次のWを2倍にしていたら', d)}</table></div></div>` +
     `<p class="sub">その時点で確定していたWのプラスの範囲でだけ（外れても今日はプラスのまま）。足す＝上限（1日5R）で見送ったレースを1日3Rまで。2倍＝増やした分だけの投資と払戻。${day && W.cand != null ? `この日に上限で見送ったレース ${W.cand}R。` : W.days ? `${W.days}日分。` : ''}過去4年の試算：足す −8.7万円・2倍 +2.0万円。買い方は変えていません。</p>`;
 }
+// プランの反省会（2026/10/24 ユーザー「反省会の買い目分析はWだけじゃなくてD3や核D，AI×D3もしっかりしてください」）：家のPCの反省会（planrev.py）の数。
+//   決め方どおり＝その日の全部のレースに自動投票の決め方を当てはめた分（買わなかったプランも）・線のすぐ下／1日の数で外れ＝もし買っていたら（決め方は変えない）
+const PR_PL = [['D3', '組D3'], ['K', 'D3核'], ['AX', 'AI×D3'], ['AD', 'AI×D']];
+function planRevHtml(P, lab) {
+  if (!P || !P.sum) return '';
+  const c = s => s && s.n ? `${s.n}R ${s.hit}的中<br><b class="${cls(s.ret - s.cost)}">${s.cost ? Math.round(s.ret / s.cost * 100) : 0}%</b>` : '-';
+  const rows = PR_PL.filter(([id]) => P.sum[id]).map(([id, nm]) => { const s = P.sum[id];
+    return `<tr><td>${nm}</td><td>${c(s.bought)}</td><td>${c(s.rule)}</td><td>${c(s.near)}</td><td>${c(s.cap)}</td><td>${s.cut && s.cut.n ? `${s.cut.hit}/${s.cut.n}` : '-'}</td></tr>`; }).join('');
+  const A = P.ai || {}, R = P.refresh || {};
+  return `<h3 class="s">プランの答え合わせ（${esc(lab)}${P.days ? `・${P.days}日` : ''}）</h3><div class="tw"><div class="scroll"><table class="st2"><tr><th>プラン</th><th>買った</th><th>決め方どおり</th><th>線のすぐ下</th><th>1日の数で外れ</th><th>線で外したワイド</th></tr>${rows}</table></div></div>` +
+    `<p class="sub">${A.n ? `AI（判断に間に合った${A.n}R）：○を変えた${A.chg2}R（3着内 AI ${A.ai2in}・アプリ ${A.app2in}）・中位の3着内 AI ${A.aiMidIn}・アプリ ${A.appMidIn}（${A.midN}R）。` : ''}${A.late ? `自信80%以上で AI が判断に間に合わない ${A.late}R。` : ''}${R.n ? `締切直前のオッズの取り直し ${R.done}/${R.n}R。` : ''}決め方どおり＝決め方をそのまま当てはめた分（買わなかったプランも）。線のすぐ下・1日の数で外れ＝もし買っていたら（決め方は変えません）。</p>`;
+}
+function planRacesM(P) {
+  const rows = (P && P.races) || [];
+  const pick = rows.filter(r => PR_PL.some(([id]) => { const p = (r.plans || {})[id]; return p && (p.why == null || (p.bought || []).length); }));
+  if (!pick.length) return '';
+  return `<h3 class="s">プランで選んだレース（${pick.length}R）</h3><div class="tw">` + pick.map(r => {
+    const ps = PR_PL.map(([id, nm]) => { const p = (r.plans || {})[id]; if (!p || p.why != null) return ''; const bt = (p.bought || []).length;
+      const hits = (p.legs || []).filter(l => l.p).map(l => `${l.t === 'wide' ? 'ワイド' : '3連複'} ${l.k}`).join('・');
+      const cutHit = (p.cut || []).filter(l => l.p).map(l => `ワイド ${l.k}`).join('・');
+      return `<div>${nm} ${p.nth}R目${bt ? '（買った）' : '（記録だけ）'}：${yen(p.cost)}→<b class="${cls(p.ret - p.cost)}">${yen(p.ret)}</b>${hits ? `<span class="sub">（${esc(hits)}）</span>` : ''}${cutHit ? `<span class="sub">　線で外した当たり：${esc(cutHit)}</span>` : ''}</div>`; }).join('');
+    return `<div style="margin:6px 0"><b>${esc(r.post || '')} ${esc(r.name)}</b> <span class="sub">自信${r.conf != null ? Math.round(r.conf * 100) : '-'}%・結果 ${(r.res || []).join('-')}${r.ai ? '' : '・AI 間に合わず'}${r.done === false ? '・直前のオッズ×' : ''}</span>${ps}</div>`; }).join('') + '</div>';
+}
 function reviewHtml(r, tot) {
   if (!r) return '<p class="empty">読めませんでした</p>';
   const s = r.summary || {}, pk = s.pk || {}, sh = s.shape || {};
@@ -1352,6 +1377,7 @@ function reviewHtml(r, tot) {
       <div class="card"><div class="k">本命の3着内</div><div class="v">${s.axisIn3 ?? '-'}/${s.races ?? '-'}</div></div>
       <div class="card"><div class="k">3連複 的中</div><div class="v">${s.hit ?? '-'}</div></div>
       <div class="card"><div class="k">位置取りの当たり</div><div class="v">${sh.posCorr != null ? sh.posCorr.toFixed(2) : '-'}</div></div></div>
+    ${planRevHtml(r.plans, 'この日')}${planRacesM(r.plans)}${rec && rec.plans ? planRevHtml(rec.plans, '直近8週') : ''}
     ${trackHtml(s.track, 'この日')}
     ${rec && rec.track ? trackHtml(rec.track, '直近8週') : ''}
     ${wShHtml(r.wShadow, 'この日', true)}${rec && rec.wShadow ? wShHtml(rec.wShadow, '直近8週') : ''}
