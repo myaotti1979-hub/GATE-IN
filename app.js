@@ -350,7 +350,57 @@ function projRows(X) {
 }
 const projRow = (X, k) => projRows(X).find(x => x.k === k) || null;
 const pjLine = q => q.st === 'buy' ? `<div class="l"><span><span class="lab">${esc(q.name)}</span>：買う見込み（${q.nth}R目）</span><span>${yen(q.cost)}</span></div>${q.tk ? `<div class="who">${esc(q.tk)}</div>` : ''}`
-  : q.st === 'ai' ? `<div class="l"><span><span class="lab">${esc(q.name)}</span>：AI の読みしだい</span><span></span></div>` : `<div class="x">${esc(q.name)}：${esc(q.why)}</div>`;
+  : q.st === 'ai' ? `<div class="l"><span><span class="lab">${esc(q.name)}</span>：AI の読みしだい</span><span></span></div>${q.alt && (q.alt.lines || []).length ? `<div class="x">今の AI の読み（${esc(q.alt.at)}）なら ${yen(q.alt.cost)}</div>${q.alt.lines.map(l => `<div class="who">${esc(l)}</div>`).join('')}` : ''}`
+  : `<div class="x">${esc(q.name)}：${esc(q.why)}</div>`;
+// 見送り見込みでも買うなら（2026/10/24 夜 ご要望「見送り予定でも買う場合には、を折りたたみでよいから出せる？」）：自信の線・1日の数・新馬戦の決まりを外して、
+//   同じ予想・同じ作り方（ワイドの倍率の線＝組D3・AI×D3 は3倍、D3核は3.5倍と位置の近さ はそのまま）で作った買い目。参考（自動投票は買わない）。手で買うときの目安
+const ALT_NOTE = '自信の線・1日の数・新馬戦の決まりを外して、同じ予想・同じ作り方（ワイドの倍率の線はそのまま）で作った買い目です。自動投票は買いません。手で買うときの目安に。';
+function altRow(name, a, pay) {   // a：{why, cost, lines, out, at}。pay：(券種, 組) → 100円あたりの払戻（確定のあと）
+  if (!a) return '';
+  if (a.why) return `<div class="x" style="margin:2px 0 8px">${esc(name)}：${esc(a.why)}</div>`;
+  if (!(a.lines || []).length) return `<div style="margin:0 0 8px"><div class="l"><span><span class="lab">${esc(name)}</span>：この形の買い目はなし</span><span></span></div>${a.out ? `<div class="x">外す組：${esc(a.out)}</div>` : ''}</div>`;
+  let res = '';
+  if (pay && a.tk2) { const hit = a.tk2.filter(t => pay(t.type, t.key) > 0), ret = hit.reduce((x, t) => x + pay(t.type, t.key) * t.yen / 100, 0);
+    res = ret > 0 ? `<div class="who"><b class="plus">→ 的中 ${esc(hit.map(t => `${TJ[t.type] || t.type} ${t.key}`).join('・'))}・払戻 ${yen(ret)}（${sgn(ret - a.cost)}）</b></div>` : `<div class="who"><b class="minus">→ はずれ（−${yen(a.cost)}）</b></div>`; }
+  return `<div style="margin:0 0 8px"><div class="l"><span><span class="lab">${esc(name)}</span>${a.at ? `<small>（AI の読み ${esc(a.at)}）</small>` : ''}</span><span>${yen(a.cost)}</span></div>${a.lines.map(l => `<div class="who">${esc(l)}</div>`).join('')}${a.out ? `<div class="x">外す組：${esc(a.out)}</div>` : ''}${res}</div>`;
+}
+const altShort = (name, a) => !a ? '' : a.why ? `${name} ${String(a.why).replace(/（[^（）]*）$/, '')}` : !(a.lines || []).length ? `${name} 買い目なし` : `${name} ${yen(a.cost)}（${a.tk}）`;
+// 自動投票が見送ったレース：判断のときの控え（plan.cb）で、それでも買っていたら（家のPCの pjAltOf と同じ作り方）
+const altFmt = v => (+v).toFixed(1);
+function altTkLines(tk) {
+  const w = tk.filter(t => t.type === 'wide'), s3 = tk.filter(t => t.type === 'sanfuku'), out = [];
+  if (w.length) { const ys = [...new Set(w.map(t => t.yen))]; out.push(`ワイド ${w.map(t => `${t.key}${t.odds ? `（${altFmt(t.odds)}倍）` : ''}${ys.length > 1 ? ` ${yen(t.yen)}` : ''}`).join('・')}${ys.length === 1 ? ` 各${yen(ys[0])}` : ''}`); }
+  if (s3.length) {
+    const ys = [...new Set(s3.map(t => t.yen))], T = s3.map(t => t.key.split('-').map(Number)), ax = T[0].filter(h => T.every(t => t.includes(h))), each = ys.length === 1 ? ` 各${yen(ys[0])}` : '';
+    if (s3.length > 1 && ax.length === 2) out.push(`3連複 ${ax.join('・')} − ${[...new Set(T.flat().filter(h => !ax.includes(h)))].sort((a, b) => a - b).join('・')}（2頭軸ながし ${s3.length}点）${each}`);
+    else out.push(`3連複 ${s3.map(t => t.key + (ys.length > 1 ? ` ${yen(t.yen)}` : '')).join('・')}${each}`);
+  }
+  return out;
+}
+const ALT_CK = { 組D3: 'D3', D3核: 'K', 'AI×D3': 'aiD3', 'AI×D': 'aiD' };
+function altFromCb(ck, c) {
+  if (!c) return { why: '組み合わせを作れない', cost: 0, lines: [], out: '', at: '' };
+  const ai = /^ai/.test(ck);
+  if (ai && !c.ai) return { why: c.aiWhy || 'AI の読みがまだ', cost: 0, lines: [], out: '', at: '' };
+  const W = (ai ? c.ai.wide : c.wide) || [], od = new Map(W.filter(w => w && w.key).map(w => [String(w.key), +w.odds || 0]));
+  const tk = (c[ck] || []).filter(t => t && ['wide', 'sanfuku'].includes(t.type) && +t.yen >= 100 && t.key)
+    .map(t => ({ type: t.type, key: String(t.key), yen: Math.floor(+t.yen / 100) * 100, odds: t.type === 'wide' ? od.get(String(t.key)) || 0 : 0 }));
+  const have = new Set(tk.filter(t => t.type === 'wide').map(t => t.key)), line = ck === 'K' ? 3.5 : ck === 'aiD' ? 0 : 3;
+  const lab = ['◎-○', '◎-▲', ai && c.ai.star && c.ai.star === c.ai.mid ? '◎-☆' : '◎-中位'];
+  const out = (ck === 'K' ? W.slice(0, 2) : W).map((w, i) => ({ w, i })).filter(({ w }) => w && w.key && !have.has(String(w.key))).map(({ w, i }) => {
+    const o = +w.odds || 0, g = ck === 'K' ? (c.kGap || [])[i] : null;
+    const why = [!o ? 'オッズがまだ' : line && o < line ? `${line}倍未満` : '', g != null && g > 0.3 ? `位置が離れている 差${g}` : ''].filter(Boolean).join('、');
+    return `${lab[i]} ${w.key}${o ? ` ${altFmt(o)}倍` : ''}${why ? `（${why}）` : ''}`; });
+  return { why: '', cost: tk.reduce((a, t) => a + t.yen, 0), lines: altTkLines(tk), out: out.join('・'), at: ai ? String(c.ai.at || '') : '', tk2: tk };
+}
+function altDecided(X, k, e) {   // 見送ったレースの「買うなら」（折りたたみ）
+  const c = e && e.plan && e.plan.cb; if (!c || !c.top) return '';
+  const nm = [...new Set([...String(e.reason || '').matchAll(/(?:^|・)(組D3|D3核|AI×D3|AI×D)：/g)].map(m => m[1]))];
+  if (!nm.length) return '';
+  const R = X.res[k], pay = R && R.payout && Object.keys(R.payout).length ? (t, key) => payOf(X, k, t, key) : null, done = !!pay;
+  const body = `<div class="tk" style="border-top:0;margin-top:0">${nm.map(n => altRow(n, altFromCb(ALT_CK[n], c), pay)).join('')}</div><p class="sub" style="margin:6px 0 0">判断のときの予想とオッズ（自動投票の控え）で、${ALT_NOTE.replace('自動投票は買いません', '自動投票は買っていません')}</p>`;
+  return fold('r.alt.' + k, '見送ったけれど買うなら', done ? '結果つき' : '判断のときの予想で', body);
+}
 function projCard(X, x) {   // 今日のタブ：買う見込みのレース
   const m = meta(X, x.k), on = x.plans.filter(q => q.st !== 'skip'), off = x.plans.filter(q => q.st === 'skip');
   return `<div class="tl"><div class="h"><div class="tm">${esc(x.at)}</div><div class="bds">${on.map(q => `<span class="bd ref">${esc(q.name)}${q.st === 'ai' ? ' AIしだい' : ''}</span>`).join('')}</div></div>` +
@@ -494,8 +544,9 @@ function renderToday() {
       `<div class="sub">${pj ? `下は家のPCの見込みです（保存した最新の予想 ${esc(pj.saved || '—')} を、自動投票と同じ決め方に当てはめたもの・${esc(pj.at || '')} 計算）。締切の約1分40秒前に、そのときの予想とオッズで決め直します。新馬戦は買いません。` : `${esc(plOn.map(p => p.title).join('・'))} は、各レースの締切の約1分40秒前に、そのときのオッズで買うか決めます。前もって決まった予定はありません（新馬戦は買いません）。`}${offTxt(wOn, kOn)}</div></div>`;
     if (plOn.length && pj) {   // プランの買う見込み（家のPCの見込み）と、見送り見込み（たたむ）
       h += pbuy.length ? pbuy.map(x => projCard(X, x)).join('') : '<p class="empty">今の予想では、このあと買う見込みのレースはありません</p>';
-      if (prest.length) h += fold('t.pjrest', `見送り見込みのレース ${prest.length}R`, '今の予想では買わない', `<ul class="lst">${prest.map(x => { const ws = [...new Set(x.plans.map(q => q.why).filter(w => w && !/^自信 /.test(w)))];
-        return `<li><b>${esc(x.at)}</b> ${rTitle(meta(X, x.k))}<span class="sub">自信 ${P(x.conf)}${ws.length ? '・' + esc(ws.join('・')) : ''}</span></li>`; }).join('')}</ul>`);
+      if (prest.length) h += fold('t.pjrest', `見送り見込みのレース ${prest.length}R`, '買うならの買い目つき', `<ul class="lst">${prest.map(x => { const ws = [...new Set(x.plans.map(q => q.why).filter(w => w && !/^自信 /.test(w)))];
+        const al = x.plans.filter(q => q.st === 'skip' && q.alt).map(q => altShort(q.name, q.alt)).filter(Boolean);   // 見送り見込みでも買うなら（2026/10/24 夜）
+        return `<li><b>${esc(x.at)}</b> ${rTitle(meta(X, x.k))}<span class="sub">自信 ${P(x.conf)}${ws.length ? '・' + esc(ws.join('・')) : ''}</span>${al.length ? `<div class="sub" style="color:var(--ink)">買うなら：${esc(al.join('・'))}</div>` : ''}</li>`; }).join('')}</ul>`);
     }
     if (up.length) h += up.map(u => upCard(X, u)).join('');
     else if (wOn || !plOn.length) { const off = plOn.length ? '' : offTxt(wOn, kOn); h += `<p class="empty">${wOn && W && (W.cands || []).length ? '今のオッズで買う予定のレースはありません' : 'いまのところ買う予定のレースはありません'}${off ? '。' + off : ''}</p>`; }
@@ -739,12 +790,15 @@ function buyBoxes(X, k) {
     if (e && DEC_DONE.includes(e.status) && e.status !== '購入済み') {
       const rs = String(e.reason || e.error || '').split(/・(?=(?:勝負レースW|組D3|D3核|AI×D3|AI×D|複勝転がし)：)/).filter(Boolean);
       h += `<div class="buy"><h3>このレースの判断：${esc(e.status)}<span class="bd wq">${esc(e.status)}</span></h3>${rs.length ? `<ul class="lst">${rs.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div>`;
+      if (e.status === '見送り') h += altDecided(X, k, e);   // 見送ったけれど買うなら（2026/10/24 夜）
     } else if (X.d === todayStr() && !done && plOn.length) {
-      const sh = /新馬|未出走/.test(String(c.name || meta(X, k).name || '')), px = sh ? null : projRow(X, k);
-      if (px && !px.sh)   // 家のPCの見込み（2026/10/24）
+      const sh = /新馬|未出走/.test(String(c.name || meta(X, k).name || '')), px = projRow(X, k);
+      const alts = px ? px.plans.filter(q => q.st === 'skip' && q.alt) : [];   // 見送り見込みでも買うなら（2026/10/24 夜。新馬戦も参考に）
+      const altH = alts.length ? fold('r.alt.' + k, '見送り見込みでも買うなら', esc(alts.map(q => q.name).join('・')), `<div class="tk" style="border-top:0;margin-top:0">${alts.map(q => altRow(q.name, q.alt)).join('')}</div><p class="sub" style="margin:6px 0 0">${ALT_NOTE}倍率は保存した予想（${esc(px.saved || '—')}）のときのもの。</p>`) : '';
+      if (px && !px.sh && !sh)   // 家のPCの見込み（2026/10/24）
         h += `<div class="buy"><h3>自動投票の予定：${esc(px.lab)}<span class="bd ref">自信 ${P(px.conf)}</span></h3><div class="tk" style="border-top:0;margin-top:0">${px.plans.map(pjLine).join('')}</div>` +
-          `<div class="sub" style="margin-top:6px">保存した予想（${esc(px.saved || '—')}）での家のPCの見込みです。締切の約1分40秒前（${esc(px.at)}ごろ）に、そのときの予想とオッズで決めます。${offTxt(wActive(X), kActive(X))}</div></div>`;
-      else h += `<div class="buy"><h3>${esc(plOn.map(p => p.title).join('・'))}<span class="bd ref">判断前</span></h3><div class="sub">${sh ? '新馬戦なので買いません。' : '締切の約1分40秒前に、そのときのオッズで買うか決めます。' + offTxt(wActive(X), kActive(X))}</div></div>`;
+          `<div class="sub" style="margin-top:6px">保存した予想（${esc(px.saved || '—')}）での家のPCの見込みです。締切の約1分40秒前（${esc(px.at)}ごろ）に、そのときの予想とオッズで決めます。${offTxt(wActive(X), kActive(X))}</div></div>` + altH;
+      else h += `<div class="buy"><h3>${esc(plOn.map(p => p.title).join('・'))}<span class="bd ref">判断前</span></h3><div class="sub">${sh || (px && px.sh) ? '新馬戦なので買いません。' : '締切の約1分40秒前に、そのときのオッズで買うか決めます。' + offTxt(wActive(X), kActive(X))}</div></div>` + altH;
     }
   }
   if (kx && !(e && s.bought && (e.plan.bets || []).some(isK))) {
@@ -1348,11 +1402,35 @@ const PR_PL = [['D3', '組D3'], ['K', 'D3核'], ['AX', 'AI×D3'], ['AD', 'AI×D'
 function planRevHtml(P, lab) {
   if (!P || !P.sum) return '';
   const c = s => s && s.n ? `${s.n}R ${s.hit}的中<br><b class="${cls(s.ret - s.cost)}">${s.cost ? Math.round(s.ret / s.cost * 100) : 0}%</b>` : '-';
+  const goal = s => { if (!s || !s.n) return '-'; const r = s.hit / s.n, need = s.cost / s.n * 1.5, per = s.hit ? s.ret / s.hit : 0;   // 目標 2/3（レースの的中）と負けない線（当たり1回の平均が 1R の投資の1.5倍）
+    return `<b class="${r >= 2 / 3 - 1e-9 ? 'plus' : 'minus'}">${s.hit}/${s.n}（${Math.round(r * 100)}%）</b><br><span class="sub">1回 ${s.hit ? yen(Math.round(per)) : '-'}<br>線 ${yen(Math.round(need))}${s.hit ? (per >= need ? ' 越え' : ' 届かず') : ''}</span>`; };
   const rows = PR_PL.filter(([id]) => P.sum[id]).map(([id, nm]) => { const s = P.sum[id];
-    return `<tr><td>${nm}</td><td>${c(s.bought)}</td><td>${c(s.rule)}</td><td>${c(s.near)}</td><td>${c(s.cap)}</td><td>${s.cut && s.cut.n ? `${s.cut.hit}/${s.cut.n}` : '-'}</td></tr>`; }).join('');
+    return `<tr><td>${nm}</td><td>${c(s.bought)}</td><td>${c(s.rule)}</td><td>${goal(s.rule)}</td><td>${c(s.near)}</td><td>${c(s.cap)}</td><td>${s.cut && s.cut.n ? `${s.cut.hit}/${s.cut.n}` : '-'}</td></tr>`; }).join('');
   const A = P.ai || {}, R = P.refresh || {};
-  return `<h3 class="s">プランの答え合わせ（${esc(lab)}${P.days ? `・${P.days}日` : ''}）</h3><div class="tw"><div class="scroll"><table class="st2"><tr><th>プラン</th><th>買った</th><th>決め方どおり</th><th>線のすぐ下</th><th>1日の数で外れ</th><th>線で外したワイド</th></tr>${rows}</table></div></div>` +
-    `<p class="sub">${A.n ? `AI（判断に間に合った${A.n}R）：○を変えた${A.chg2}R（3着内 AI ${A.ai2in}・アプリ ${A.app2in}）・中位の3着内 AI ${A.aiMidIn}・アプリ ${A.appMidIn}（${A.midN}R）。` : ''}${A.late ? `自信80%以上で AI が判断に間に合わない ${A.late}R。` : ''}${R.n ? `締切直前のオッズの取り直し ${R.done}/${R.n}R。` : ''}決め方どおり＝決め方をそのまま当てはめた分（買わなかったプランも）。線のすぐ下・1日の数で外れ＝もし買っていたら（決め方は変えません）。</p>`;
+  return `<h3 class="s">プランの答え合わせ（${esc(lab)}${P.days ? `・${P.days}日` : ''}）</h3><div class="tw"><div class="scroll"><table class="st2"><tr><th>プラン</th><th>買った</th><th>決め方どおり</th><th>目標 2/3</th><th>線のすぐ下</th><th>1日の数で外れ</th><th>線で外したワイド</th></tr>${rows}</table></div></div>` +
+    `<p class="sub">${A.n ? `AI（判断に間に合った${A.n}R）：○を変えた${A.chg2}R（3着内 AI ${A.ai2in}・アプリ ${A.app2in}）・中位の3着内 AI ${A.aiMidIn}・アプリ ${A.appMidIn}（${A.midN}R）。` : ''}${A.late ? `自信80%以上で AI が判断に間に合わない ${A.late}R。` : ''}${R.n ? `締切直前のオッズの取り直し ${R.done}/${R.n}R。` : ''}決め方どおり＝決め方をそのまま当てはめた分（買わなかったプランも）。目標 2/3＝決め方どおりのレースの3つに2つで何か当てる。当たり1回の平均（1回）が 1R の投資の1.5倍（線）以上なら負けません。線のすぐ下・1日の数で外れ＝もし買っていたら（決め方は変えません）。</p>` + planYomiM(P);
+}
+// 線ぎめの材料と読みの外れ方（2026/10/24 夜 ユーザー「このあたりもラインぎめの材料としても使えるかもしれないですね　読みと何が外れてたのかも」）。家のPCの反省会（planrev.py）の band・parts・yomi
+const PR_BANDS = [['b85', '85%以上', 0.85], ['b80', '80〜85%', 0.80], ['b75', '75〜80%', 0.75], ['b70', '70〜75%', 0.70], ['b65', '65〜70%', 0.65], ['b00', '65%未満', 0]];
+const PR_LINE = { D3: 0.8, K: 0.7, AX: 0.8, AD: 0.8 };
+function planYomiM(P) {
+  if (!P || !P.sum) return '';
+  const S = P.sum, Y = P.yomi || {}, PT = P.parts || {}, ids = PR_PL.filter(([id]) => S[id] && Object.keys(S[id].band || {}).length);
+  const roi = s => s && s.cost ? Math.round(s.ret / s.cost * 100) + '%' : '-';
+  const c = s => s && s.n ? `${s.n}R ${s.hit}的中<br><b class="${cls(s.ret - s.cost)}">${roi(s)}</b>` : '-';
+  let h = '';
+  if (ids.length) h += `<h3 class="s">自信の高さごと：もし全部買っていたら</h3><div class="tw"><div class="scroll"><table class="st2"><tr><th>自信</th>${ids.map(([id, nm]) => `<th>${nm}<br><small>線 ${Math.round(PR_LINE[id] * 100)}%</small></th>`).join('')}<th>◎が4着以下</th></tr>` +
+    PR_BANDS.map(([b, lab, lo]) => { const g = ((Y.app || {}).band || {})[b], n = g ? g.A + g.B + g.C : 0;
+      return `<tr><td>${lab}</td>${ids.map(([id]) => `<td${lo >= PR_LINE[id] - 1e-9 ? ' style="background:var(--chip)"' : ''}>${c((S[id].band || {})[b])}</td>`).join('')}<td>${n ? `${g.A}/${n}` : '-'}</td></tr>`; }).join('') +
+    `</table></div></div><p class="sub">選ばなかったレースも、判断のときの買い目を買っていたら（新馬戦を除く）。色の付いた所が今の決め方の内。線は日数がたまってから、1年の作り直しと見比べて決めます。</p>`;
+  const pc = (x, xx) => x && x.n ? `${x.hit}/${x.n}回<br><b class="${cls(x.ret - x.cost)}">${roi(x)}</b>${xx && xx.n ? `<br><small>3倍以上 ${xx.hit}/${xx.n}・${roi(xx)}</small>` : ''}` : '-';
+  if (PT.app && PT.app.w1 && PT.app.w1.n) h += `<h3 class="s">買い目の部分ごと</h3><div class="tw"><div class="scroll"><table class="st2"><tr><th>部分</th><th>アプリの印</th><th>AI の印</th></tr>` +
+    [['w1', '◎-○'], ['w2', '◎-▲'], ['w3', '◎-中位<br><small>AI は☆</small>'], ['s3', '3連複<br><small>800円</small>']].map(([k, lab]) => `<tr><td>${lab}</td><td>${pc(PT.app[k], PT.app[k + 'x'])}</td><td>${pc((PT.ai || {})[k], (PT.ai || {})[k + 'x'])}</td></tr>`).join('') +
+    `</table></div></div><p class="sub">全部のレース（新馬戦を除く）で、ワイドを500円ずつ・3連複 ◎○→3〜6番手を800円買っていたら。倍率の線で外した組も入れています。</p>`;
+  const yl = (y, lab) => y && (y.A + y.B + y.C) ? `<tr><td>${lab}</td><td>${y.A}</td><td>${y.B}</td><td>${y.C}</td><td>${y.r46}・${y.ana}・${y.low}</td></tr>` : '';
+  if (Y.app && (Y.app.A + Y.app.B + Y.app.C)) h += `<h3 class="s">読みの外れ方</h3><div class="tw"><div class="scroll"><table class="st2"><tr><th>印</th><th>◎が<br>4着以下</th><th>相手が<br>来ない</th><th>◎と<br>相手</th><th>ほかに来た馬<br><small>4〜6番手・人気薄・人気なのに低く</small></th></tr>${yl(Y.app, 'アプリ')}${yl(Y.ai, 'AI')}</table></div></div>` +
+    `<p class="sub">◎が4着以下／◎は来たが ○▲中位 が来ない／◎と相手が来た（新馬戦を除く）。ほかに来た馬＝◎○▲中位 以外で3着内に来た馬（アプリの並びの4〜6番手・7番手以下の人気薄・7番手以下なのに5番人気以内）。</p>`;
+  return h;
 }
 function planRacesM(P) {
   const rows = (P && P.races) || [];
