@@ -335,6 +335,26 @@ function kActive(X) {
   const se = (S.status || {}).settings; return se ? !!se.korogashi : true;
 }
 const offTxt = (wOn, kOn) => { const o = [!wOn && '勝負レースW', !kOn && '複勝転がし'].filter(Boolean); return o.length ? `${o.join('・')}は今日は買いません（設定でオフ）。` : ''; };
+// 家のPCが作ったプラン（組D3・D3核・AI×D3 など）の買う予定（status.json の proj。2026/10/24 ご要望：実際に買う予定をスマホにも）。
+//  家のPCの画面と同じ決め方（保存した最新の予想を自動投票の決め方に当てはめた見込み）。今日だけ。判断が済んだレース・判断の時刻を過ぎたレースは除く
+function projOf(X) {
+  const pj = (S.status || {}).proj;
+  return X && pj && X.d === todayStr() && pj.date === X.d ? pj : null;
+}
+function projRows(X) {
+  const pj = projOf(X); if (!pj) return [];
+  const now = nowMin();
+  return (pj.rows || []).filter(x => { const e = X.log[x.k]; if (e && DEC_DONE.includes(e.status)) return false; const t = tmin(x.at); return t == null || t >= now - 1; });
+}
+const projRow = (X, k) => projRows(X).find(x => x.k === k) || null;
+const pjLine = q => q.st === 'buy' ? `<div class="l"><span><span class="lab">${esc(q.name)}</span>：買う見込み（${q.nth}R目）</span><span>${yen(q.cost)}</span></div>${q.tk ? `<div class="who">${esc(q.tk)}</div>` : ''}`
+  : q.st === 'ai' ? `<div class="l"><span><span class="lab">${esc(q.name)}</span>：AI の読みしだい</span><span></span></div>` : `<div class="x">${esc(q.name)}：${esc(q.why)}</div>`;
+function projCard(X, x) {   // 今日のタブ：買う見込みのレース
+  const m = meta(X, x.k), on = x.plans.filter(q => q.st !== 'skip'), off = x.plans.filter(q => q.st === 'skip');
+  return `<div class="tl"><div class="h"><div class="tm">${esc(x.at)}</div><div class="bds">${on.map(q => `<span class="bd ref">${esc(q.name)}${q.st === 'ai' ? ' AIしだい' : ''}</span>`).join('')}</div></div>` +
+    `<div class="rn">${rTitle(m)}<small>自信 ${P(x.conf)}・発走 ${esc(x.time || '')}</small></div>` +
+    `<div class="tk">${on.map(pjLine).join('')}${off.length ? `<div class="x">${off.map(q => `${esc(q.name)}：${esc(q.why)}`).join('・')}</div>` : ''}</div></div>`;
+}
 function wInfo(X, k) {
   const sb = X.sb, W = sb && sb.W; if (!W || !wActive(X)) return null;
   const r = (W.races || {})[k];
@@ -440,9 +460,11 @@ function renderToday() {
     }
     up.sort((a, b) => a.t - b.t); others.sort((a, b) => a.t - b.t);
   }
+  // プランの買う予定（家のPCの見込み。2026/10/24）
+  const pj = today ? projOf(X) : null, prs = pj ? projRows(X) : [], pbuy = prs.filter(x => x.buy), prest = prs.filter(x => !x.buy && !x.sh);
   // ---- 収支のまとめ ----
   const pl = ret - cost;
-  const nextUp = up[0];
+  const nextUp = [up[0] && { t: up[0].t, k: up[0].k }, pbuy[0] && { t: tmin(pbuy[0].at) ?? 9999, k: pbuy[0].k }].filter(Boolean).sort((a, b) => a.t - b.t)[0];
   const mini = today
     ? [plOn.length && !wOn ? ['プラン', `${nPlan}R<small>${esc(plOn.map(p => p.title).join('・'))}</small>`] : ['勝負レースW', wOn ? `${nW} / ${cap == null ? '−' : cap}R` : 'OFF'],
        ['複勝転がし', !kOn ? 'OFF' : K ? `${yen(K.bank || 0)}` : se.korogashi ? '朝に決める' : 'OFF'],
@@ -467,7 +489,12 @@ function renderToday() {
     h += `<div class="sh"><h2>これから買う予定</h2><span>発走の順</span></div>`;
     if (plOn.length) h += `<div class="tl"><div class="h"><div class="tm">${nd ? hhmm(Math.floor(nd.at)) : ''}</div><div class="bds">${plOn.map(p => `<span class="bd ref">${esc(p.title)}</span>`).join('')}</div></div>` +
       `<div class="rn">${nd ? `次の判断：${rTitle(meta(X, nd.k))}<small>締切 ${hhmm(nd.close)}</small>` : '今日の判断はこれで終わりです'}</div>` +
-      `<div class="sub">${esc(plOn.map(p => p.title).join('・'))} は、各レースの締切の約1分40秒前に、そのときのオッズで買うか決めます。前もって決まった予定はありません（新馬戦は買いません）。${offTxt(wOn, kOn)}</div></div>`;
+      `<div class="sub">${pj ? `下は家のPCの見込みです（保存した最新の予想 ${esc(pj.saved || '—')} を、自動投票と同じ決め方に当てはめたもの・${esc(pj.at || '')} 計算）。締切の約1分40秒前に、そのときの予想とオッズで決め直します。新馬戦は買いません。` : `${esc(plOn.map(p => p.title).join('・'))} は、各レースの締切の約1分40秒前に、そのときのオッズで買うか決めます。前もって決まった予定はありません（新馬戦は買いません）。`}${offTxt(wOn, kOn)}</div></div>`;
+    if (plOn.length && pj) {   // プランの買う見込み（家のPCの見込み）と、見送り見込み（たたむ）
+      h += pbuy.length ? pbuy.map(x => projCard(X, x)).join('') : '<p class="empty">今の予想では、このあと買う見込みのレースはありません</p>';
+      if (prest.length) h += fold('t.pjrest', `見送り見込みのレース ${prest.length}R`, '今の予想では買わない', `<ul class="lst">${prest.map(x => { const ws = [...new Set(x.plans.map(q => q.why).filter(w => w && !/^自信 /.test(w)))];
+        return `<li><b>${esc(x.at)}</b> ${rTitle(meta(X, x.k))}<span class="sub">自信 ${P(x.conf)}${ws.length ? '・' + esc(ws.join('・')) : ''}</span></li>`; }).join('')}</ul>`);
+    }
     if (up.length) h += up.map(u => upCard(X, u)).join('');
     else if (wOn || !plOn.length) { const off = plOn.length ? '' : offTxt(wOn, kOn); h += `<p class="empty">${wOn && W && (W.cands || []).length ? '今のオッズで買う予定のレースはありません' : 'いまのところ買う予定のレースはありません'}${off ? '。' + off : ''}</p>`; }
     if (others.length) h += fold('t.others', `ほかのWの候補 ${others.length}R`, '今のままなら見送り', others.map(u => upCard(X, u)).join(''));
@@ -632,6 +659,7 @@ function marksOf(X, k) {   // レース番号のボタンの印：W・転がし�
   const bb = e && s.bought ? (e.plan.bets || []) : [];
   if ((w && (w.st === 'pick' || (w.st === 'cand' && w.proj && w.proj.st === 'buy'))) || bb.some(isW)) o.push('<i class="w">W</i>');
   if ((kx && !kx.sk && !kx.cx && (kx.leg || kx.K.status === 'alive')) || bb.some(isK)) o.push('<i class="k">転</i>');
+  if (!(e && s.bought)) { const px = projRow(X, k); if (px && px.buy) o.push('<i style="background:var(--blue);color:var(--onblue)">予</i>'); }   // プランの買う見込み（家のPCの見込み。2026/10/24）
   if (s && s.bought && s.ret > 0) o.push('<i class="h">当</i>');
   return o.join('');
 }
@@ -710,8 +738,11 @@ function buyBoxes(X, k) {
       const rs = String(e.reason || e.error || '').split(/・(?=(?:勝負レースW|組D3|D3核|AI×D3|AI×D|複勝転がし)：)/).filter(Boolean);
       h += `<div class="buy"><h3>このレースの判断：${esc(e.status)}<span class="bd wq">${esc(e.status)}</span></h3>${rs.length ? `<ul class="lst">${rs.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div>`;
     } else if (X.d === todayStr() && !done && plOn.length) {
-      const sh = /新馬|未出走/.test(String(c.name || meta(X, k).name || ''));
-      h += `<div class="buy"><h3>${esc(plOn.map(p => p.title).join('・'))}<span class="bd ref">判断前</span></h3><div class="sub">${sh ? '新馬戦なので買いません。' : '締切の約1分40秒前に、そのときのオッズで買うか決めます。' + offTxt(wActive(X), kActive(X))}</div></div>`;
+      const sh = /新馬|未出走/.test(String(c.name || meta(X, k).name || '')), px = sh ? null : projRow(X, k);
+      if (px && !px.sh)   // 家のPCの見込み（2026/10/24）
+        h += `<div class="buy"><h3>自動投票の予定：${esc(px.lab)}<span class="bd ref">自信 ${P(px.conf)}</span></h3><div class="tk" style="border-top:0;margin-top:0">${px.plans.map(pjLine).join('')}</div>` +
+          `<div class="sub" style="margin-top:6px">保存した予想（${esc(px.saved || '—')}）での家のPCの見込みです。締切の約1分40秒前（${esc(px.at)}ごろ）に、そのときの予想とオッズで決めます。${offTxt(wActive(X), kActive(X))}</div></div>`;
+      else h += `<div class="buy"><h3>${esc(plOn.map(p => p.title).join('・'))}<span class="bd ref">判断前</span></h3><div class="sub">${sh ? '新馬戦なので買いません。' : '締切の約1分40秒前に、そのときのオッズで買うか決めます。' + offTxt(wActive(X), kActive(X))}</div></div>`;
     }
   }
   if (kx && !(e && s.bought && (e.plan.bets || []).some(isK))) {
