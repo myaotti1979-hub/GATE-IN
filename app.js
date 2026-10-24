@@ -26,7 +26,16 @@ const PAYJP = [['tan', '単勝'], ['fuku', '複勝'], ['waku', '枠連'], ['umar
 // 買い方の名前（PCのアプリと同じ）。3連単は買わないので出さない（2026/10/11 ご指示）
 const PK = { value: '狙い目 単勝', tan1: '◎の単勝', fuku1: '複勝◎', umaren: '馬連 流し', wide1: 'ワイド 1点', wideana: 'ワイド 穴流し', sanfuku: '3連複 軸1頭＋5頭', sanfuku6: '3連複 軸1頭＋6頭',
   box5: '3連複 5頭ボックス', box6: '3連複 6頭ボックス', jiku2: '3連複 2頭軸流し', jiku2s: '3連複 2頭軸 3点', box4: '3連複 4頭ボックス',
-  _bought: '実際に買った馬券（自動投票）', _koro: '複勝転がし', _shobuW: '勝負レースW（記録）', _shobu: '勝負レース B（記録だけ）', _shobuC: '勝負レース C（記録だけ）' };
+  _bought: '実際に買った馬券（自動投票）', _koro: '複勝転がし', _shobuW: '勝負レースW（記録）', _shobu: '勝負レース B（記録だけ）', _shobuC: '勝負レース C（記録だけ）',
+  cbD3: '組D3', cbK: 'D3核', abD: 'AI×D', abX: 'AI×D3' };
+// プラン（家のPCの autobet.PLANS と同じ。各レースの締切の約1分40秒前に、そのときのオッズで買うか決める。新馬戦は買わない）（2026/10/24 スマホ版を合わせた）
+const PLANS = [{ set: 'planD3', pk: 'cbD3', title: '組D3', rule: '自信80%以上・1日3Rまで' },
+  { set: 'planK', pk: 'cbK', title: 'D3核', rule: '自信70%以上・数の上限なし' },
+  { set: 'planAiD', pk: 'abD', title: 'AI×D', rule: 'AIの読み・自信80%以上・1日3Rまで' },
+  { set: 'planAiD3', pk: 'abX', title: 'AI×D3', rule: 'AIの読み・自信80%以上・1日3Rまで' }];
+const planOf = b => PLANS.find(p => b && (b.pk === p.pk || b.title === p.title)) || null;
+const plansOn = se => PLANS.filter(p => se && se[p.set]);
+const DEC_DONE = ['購入済み', '記録のみ', '見送り', '要確認', '時間切れ', '資金不足', 'エラー', '送信中'];
 const PK_IDS = ['value', 'tan1', 'fuku1', 'umaren', 'wide1', 'wideana', 'sanfuku', 'sanfuku6', 'box5', 'box6', 'jiku2', 'jiku2s', 'box4'];
 const MARKS = ['◎', '○', '▲', '△', '△'];
 const JYO = { '01': '札幌', '02': '函館', '03': '福島', '04': '新潟', '05': '東京', '06': '中山', '07': '中京', '08': '京都', '09': '阪神', '10': '小倉' };
@@ -311,8 +320,23 @@ function wProj(sb) {
   });
   return { cap, picked, left: cap == null ? null : Math.max(0, cap - picked), map };
 }
+// その日に勝負レースW・複勝転がしを「買う」設定か（2026/10/24）。オフの日は、買う予定・印・計画を出さない
+//  今日：家のPCの設定（W＝types に shobuW・転がし＝korogashi）。設定が読めないときは前と同じく出す
+//  前の日の W：判断の記録に「記録だけ」（W がオフの日に家のPCが残すもの）でないものがあれば、買う設定だった
+//  前の日の転がし：前と同じに出す（「記録だけ」の印は kBuyMode）
+function wActive(X) {
+  if (!X) return false;
+  const se = (S.status || {}).settings;
+  if (X.d === todayStr()) return se && Array.isArray(se.types) ? se.types.includes('shobuW') : true;
+  const W = X.sb && X.sb.W; return !!(W && Object.values(W.races || {}).some(r => r && r.by !== '記録だけ'));
+}
+function kActive(X) {
+  if (!X || X.d !== todayStr()) return true;
+  const se = (S.status || {}).settings; return se ? !!se.korogashi : true;
+}
+const offTxt = (wOn, kOn) => { const o = [!wOn && '勝負レースW', !kOn && '複勝転がし'].filter(Boolean); return o.length ? `${o.join('・')}は今日は買いません（設定でオフ）。` : ''; };
 function wInfo(X, k) {
-  const sb = X.sb, W = sb && sb.W; if (!W) return null;
+  const sb = X.sb, W = sb && sb.W; if (!W || !wActive(X)) return null;
   const r = (W.races || {})[k];
   if (r) return r.pick ? { st: 'pick', plan: r.plan || {}, at: r.at, settled: r.settled, ret: r.ret } : { st: 'skip', why: r.why, at: r.at };
   const i = (W.cands || []).findIndex(c => c.key === k); if (i < 0) return null;
@@ -320,7 +344,7 @@ function wInfo(X, k) {
   return { st: 'cand', rank: i + 1, proj: pj, plan: { tickets: c.tickets || [], pks: c.pks || [], cost: c.cost, estRoi: c.estRoi, hit: c.hit, tierName: c.tierName } };
 }
 function kInfo(X, k) {
-  const K = X.sb && X.sb.K; if (!K) return null;
+  const K = X.sb && X.sb.K; if (!K || !kActive(X)) return null;
   const i = (K.plan || []).findIndex(q => q.key === k); if (i < 0) return null;
   const L = K.legs || [];
   return { i, q: K.plan[i], leg: L.find(l => l.key === k && !l.cancel), cx: L.find(l => l.key === k && l.cancel), sk: (K.skips || {})[k], K };
@@ -332,6 +356,28 @@ function kRes(l) {   // 転がし1回分の結果
   return '結果待ち';
 }
 const kBuyMode = (X, K) => { const live = ((K && K.legs) || []).filter(l => !l.cancel); if (live.length) return live.every(l => l.buy) ? '実際に買う' : live[0].buy ? '途中から記録だけ' : '記録だけ'; const on = S.status && S.status.settings && S.status.settings.korogashi && !S.status.settings.paper; return X.d === todayStr() ? (on ? '実際に買う' : '記録だけ') : ''; };
+// 次に判断するレース（今日・まだ判断していない・障害と新馬は除く）。家のPCは締切（発走の closeOffset 分前）の約1分40秒前に判断する（2026/10/24）
+//  家のPCの「次は…」の表示は 9時台のレースを後に並べてしまうので（文字の並び）、スマホでは発走の時刻の順で出し直す
+function nextDecision(X, se) {
+  if (!X || X.d !== todayStr()) return null;
+  const now = nowMin(), off = +((se || {}).closeOffset ?? (se || {}).beforeClose) || 2;
+  let best = null;
+  for (const [k, c] of Object.entries(X.cd || {})) {
+    const t = tmin(tstr(c.time)); if (t == null || c.result) continue;
+    if (/障/.test(String(c.surface || '')) || /障害|新馬|未出走/.test(String(c.name || ''))) continue;
+    const e = X.log[k]; if (e && DEC_DONE.includes(e.status)) continue;
+    const at = t - off - 100 / 60; if (at < now - 1) continue;
+    if (!best || at < best.at) best = { k, t, at, close: t - off };
+  }
+  return best;
+}
+function stateMsg(st, X, se) {   // 家のPCの「いまの状態」。「次は…」は発走の順で出し直す
+  const m = (st && st.state && st.state.msg) || '';
+  if (!/^次は /.test(m)) return m;
+  const nd = nextDecision(X, se); if (!nd) return m;
+  const mm = meta(X, nd.k);
+  return `次は ${mm.track}${mm.no}R：${hhmm(Math.floor(nd.at))}ごろに買うか決める（締切 ${hhmm(nd.close)}）`;
+}
 
 // 買い目の行（Wの計画：買い方ごと）。1点なら組と馬名、何点もある買い方は使う馬
 function planLines(X, k, plan, lab) {
@@ -359,26 +405,30 @@ function renderToday() {
   const bought = ents.filter(x => x.s.bought).sort((a, b) => (tmin(a.m.time) ?? 9999) - (tmin(b.m.time) ?? 9999) || rnOf(a.k) - rnOf(b.k));
   const cost = bought.reduce((a, x) => a + x.s.cost, 0), ret = bought.reduce((a, x) => a + x.s.ret, 0), open = bought.filter(x => !x.s.done).length;
   const hits = bought.filter(x => x.s.ret > 0).length;
-  const skips = ents.filter(x => !x.s.bought && !x.e.error);
+  const skips = ents.filter(x => !x.s.bought && !x.e.error && x.e.status && x.e.status !== '送信中');   // 判断の前（取り直しだけの記録）は数えない（2026/10/24）
   const fails = ents.filter(x => !x.s.bought && x.e.error);
   const PJ = wProj(sb), cap = PJ ? PJ.cap : (sb.wCap === undefined ? 5 : sb.wCap);
   const nW = W ? Object.values(W.races || {}).filter(x => x.pick).length : bought.filter(x => (x.e.plan.bets || []).some(isW)).length;
-  // これから買う予定（今日だけ）：Wの候補（今のオッズなら買う予定のもの）と、複勝転がしのまだ決めていない回
+  const plOn = plansOn(se), wOn = wActive(X), kOn = kActive(X);   // プラン（組D3・D3核・AI×D・AI×D3）・W と転がしを買う設定か（2026/10/24）
+  const nPlan = bought.filter(x => ((x.e.plan || {}).bets || []).some(b => planOf(b))).length, nd = today ? nextDecision(X, se) : null;
+  // これから買う予定（今日だけ）：Wの候補（今のオッズなら買う予定のもの）と、複勝転がしのまだ決めていない回。設定でオフのものは出さない（2026/10/24）
   const up = [], others = [];
   if (today) {
     const boughtK = new Set(bought.map(x => x.k));
-    for (const c of (W && W.cands) || []) {
-      if (boughtK.has(c.key)) continue;
-      const t = tmin(c.time); if (t != null && t < now - 1) continue;
-      const pj = PJ && PJ.map[c.key];
-      (pj && pj.st === 'buy' ? up : others).push({ t: t ?? 9999, k: c.key, w: { st: 'cand', proj: pj, plan: c } });
+    if (wOn) {
+      for (const c of (W && W.cands) || []) {
+        if (boughtK.has(c.key)) continue;
+        const t = tmin(c.time); if (t != null && t < now - 1) continue;
+        const pj = PJ && PJ.map[c.key];
+        (pj && pj.st === 'buy' ? up : others).push({ t: t ?? 9999, k: c.key, w: { st: 'cand', proj: pj, plan: c } });
+      }
+      for (const [k, r] of Object.entries((W && W.races) || {})) {
+        if (!r.pick || boughtK.has(k)) continue;
+        const t = tmin(r.time); if (t != null && t < now - 3) continue;
+        up.push({ t: t ?? 9999, k, w: { st: 'pick', plan: r.plan || {}, at: r.at } });
+      }
     }
-    for (const [k, r] of Object.entries((W && W.races) || {})) {
-      if (!r.pick || boughtK.has(k)) continue;
-      const t = tmin(r.time); if (t != null && t < now - 3) continue;
-      up.push({ t: t ?? 9999, k, w: { st: 'pick', plan: r.plan || {}, at: r.at } });
-    }
-    if (K && K.status === 'alive') {
+    if (kOn && K && K.status === 'alive') {
       let first = true;
       for (const [i, q] of (K.plan || []).entries()) {
         const x = kInfo(X, q.key); if (!x || x.leg || x.sk || x.cx) continue;
@@ -394,17 +444,18 @@ function renderToday() {
   const pl = ret - cost;
   const nextUp = up[0];
   const mini = today
-    ? [['勝負レースW', `${nW} / ${cap == null ? '−' : cap}R`],
-       ['複勝転がし', K ? `${yen(K.bank || 0)}` : se.korogashi ? '朝に決める' : 'OFF'],
-       nextUp ? ['次に買う', `${hhmm(nextUp.t)}<small>${esc(meta(X, nextUp.k).track)}${meta(X, nextUp.k).no}R</small>`] : ['当たり', `${hits} / ${bought.length}R`]]
+    ? [plOn.length && !wOn ? ['プラン', `${nPlan}R<small>${esc(plOn.map(p => p.title).join('・'))}</small>`] : ['勝負レースW', wOn ? `${nW} / ${cap == null ? '−' : cap}R` : 'OFF'],
+       ['複勝転がし', !kOn ? 'OFF' : K ? `${yen(K.bank || 0)}` : se.korogashi ? '朝に決める' : 'OFF'],
+       nextUp ? ['次に買う', `${hhmm(nextUp.t)}<small>${esc(meta(X, nextUp.k).track)}${meta(X, nextUp.k).no}R</small>`]
+         : nd && plOn.length ? ['次の判断', `${hhmm(Math.floor(nd.at))}<small>${esc(meta(X, nd.k).track)}${meta(X, nd.k).no}R</small>`] : ['当たり', `${hits} / ${bought.length}R`]]
     : [['買ったレース', `${bought.length}R`], ['当たり', `${hits}R`], ['見送り', `${skips.length}R`]];
   let state = '';
   if (today) {
     const hb = S.hb, min = hb ? Math.round((Date.now() / 1000 - hb.t) / 60) : 999;
     if (min > 10) state = `<div class="state warn">家のパソコンの写しが${hb ? ` ${esc(hb.at)} から` : ''}止まっています。家のPCで GATE IN が動いているか確かめてください</div>`;
     else if (!se.enabled) state = '<div class="state warn">自動投票は止まっています（家のPCで「開始」を押すと買います）</div>';
-    else if (se.paper) state = `<div class="state">買わずに記録だけ（本番と同じように決めて記録。即PATでは買いません）${st.state && st.state.msg ? '<br>' + esc(st.state.msg) : ''}</div>`;
-    else if (st.state && st.state.msg) state = `<div class="state">${esc(st.state.msg)}</div>`;
+    else if (se.paper) state = `<div class="state">買わずに記録だけ（本番と同じように決めて記録。即PATでは買いません）${st.state && st.state.msg ? '<br>' + esc(stateMsg(st, X, se)) : ''}</div>`;
+    else if (st.state && st.state.msg) state = `<div class="state">${esc(stateMsg(st, X, se))}</div>`;
   }
   let h = `<div class="sum"><div class="hd"><span>${today ? '今日' : 'この日'}の収支（実際に買った分）</span><b>${mdw(d)}</b></div>
     <div class="big"><span class="pl ${cls(pl)}">${sgn(pl)}</span><span class="io">投資 ${yen(cost)}・払戻 ${yen(ret)}${open ? `<br>結果待ち ${open}R` : ''}</span></div>
@@ -414,12 +465,16 @@ function renderToday() {
   // ---- これから買う予定 ----
   if (today) {
     h += `<div class="sh"><h2>これから買う予定</h2><span>発走の順</span></div>`;
-    h += up.length ? up.map(u => upCard(X, u)).join('') : `<p class="empty">${W && (W.cands || []).length ? '今のオッズで買う予定のレースはありません' : 'いまのところ買う予定のレースはありません'}</p>`;
+    if (plOn.length) h += `<div class="tl"><div class="h"><div class="tm">${nd ? hhmm(Math.floor(nd.at)) : ''}</div><div class="bds">${plOn.map(p => `<span class="bd ref">${esc(p.title)}</span>`).join('')}</div></div>` +
+      `<div class="rn">${nd ? `次の判断：${rTitle(meta(X, nd.k))}<small>締切 ${hhmm(nd.close)}</small>` : '今日の判断はこれで終わりです'}</div>` +
+      `<div class="sub">${esc(plOn.map(p => p.title).join('・'))} は、各レースの締切の約1分40秒前に、そのときのオッズで買うか決めます。前もって決まった予定はありません（新馬戦は買いません）。${offTxt(wOn, kOn)}</div></div>`;
+    if (up.length) h += up.map(u => upCard(X, u)).join('');
+    else if (wOn || !plOn.length) { const off = plOn.length ? '' : offTxt(wOn, kOn); h += `<p class="empty">${wOn && W && (W.cands || []).length ? '今のオッズで買う予定のレースはありません' : 'いまのところ買う予定のレースはありません'}${off ? '。' + off : ''}</p>`; }
     if (others.length) h += fold('t.others', `ほかのWの候補 ${others.length}R`, '今のままなら見送り', others.map(u => upCard(X, u)).join(''));
-    // 基準にあと少しのレース（これから候補になるかも）を2つ（2026/10/11 ご要望：見送りの一覧の代わりに）
-    const near = ((W && W.near) || []).filter(x => !(W.races || {})[x.key]);
+    // 基準にあと少しのレース（これから候補になるかも）を2つ（2026/10/11 ご要望：見送りの一覧の代わりに）。W がオフの日は出さない（2026/10/24）
+    const near = wOn ? ((W && W.near) || []).filter(x => !(W.races || {})[x.key]) : [];
     if (near.length) h += `<div class="tw near"><div class="nh">候補になるかも（あと少しで基準）</div><ul class="lst">${near.map(x => `<li><b>${esc(x.time || '')}</b> ${esc(x.name)}<div class="sub">${esc(x.pname)} 推定${(x.roi * 100).toFixed(x.gap < 0.01 ? 1 : 0)}%（基準${P(x.th)}まであと${(x.gap * 100).toFixed(x.gap < 0.01 ? 1 : 0)}%）</div></li>`).join('')}</ul></div>`;
-    if (W) h += `<p class="foot2">Wは、締切の約1分40秒前に最新のオッズで買うかどうかを決めます。${W.candsAt ? `候補は ${esc(W.candsAt)} の計算。` : ''}1日${cap == null ? '何R' : cap + 'R'}まで。</p>`;
+    if (W && wOn) h += `<p class="foot2">Wは、締切の約1分40秒前に最新のオッズで買うかどうかを決めます。${W.candsAt ? `候補は ${esc(W.candsAt)} の計算。` : ''}1日${cap == null ? '何R' : cap + 'R'}まで。</p>`;
   }
   // ---- 買った馬券 ----
   h += `<div class="sh"><h2>買った馬券</h2><span>${bought.length}R</span></div>`;
@@ -439,6 +494,7 @@ function renderToday() {
   box.innerHTML = h;
 }
 function kCardHtml(X, today) {
+  if (!kActive(X)) return '';   // 転がしを買わない日（設定でオフ）は出さない。家のPCは「記録だけ」で残している（2026/10/24）
   const sb = X.sb || {}, K = sb.K, on = S.status && S.status.settings && S.status.settings.korogashi && !S.status.settings.paper;
   if (!K) {
     if (!today || !on) return '';
@@ -502,6 +558,10 @@ function betGroups(X, k, bets) {   // 買った券：同じ種類で何点もあ
   }
   return out.join('');
 }
+function planInfo(e) {   // プランで買ったとき：その日の何R目・自信（2026/10/24）
+  const p = (e && e.plan) || {}, o = PLANS.filter(q => p[q.pk]).map(q => { const i = p[q.pk] || {}; return `${q.title} ${i.nth || '?'}R目・自信 ${P(i.conf)}`; });
+  return o.length ? `<div class="x">${esc(o.join('／'))}</div>` : '';
+}
 function boughtCard(X, x) {
   const { k, e, m, s } = x, bets = (e.plan && e.plan.bets) || [], r = X.res[k];
   const hasW = bets.some(isW), hasK = bets.some(isK);
@@ -510,7 +570,7 @@ function boughtCard(X, x) {
   const w = wInfo(X, k);
   return `<div class="tl ${s.ret > 0 ? 'hit' : hasW ? 'w' : hasK ? 'k' : ''}"><div class="h"><div class="tm">${esc(m.time || '')}</div><div class="bds">${bd}</div></div>
     <div class="rn">${rTitle(m)}${e.at ? `<small>${esc(atHM(e.at))} 購入</small>` : ''}</div>
-    <div class="tk">${betGroups(X, k, bets)}${w && w.st === 'pick' && w.plan ? `<div class="x">${estLine(w.plan)}</div>` : ''}</div>
+    <div class="tk">${betGroups(X, k, bets)}${hasW && w && w.st === 'pick' && w.plan ? `<div class="x">${estLine(w.plan)}</div>` : ''}${planInfo(e)}</div>
     <div class="res"><span>${ord ? `着順 ${esc(ord)}` : '結果はまだ'}</span>${s.done ? `<b class="${cls(s.ret - s.cost)}">${sgn(s.ret - s.cost)}</b>` : `<b>${yen(s.cost)}</b>`}</div></div>`;
 }
 function bcHtml(X) {   // 勝負レース B・C（記録だけ。実際には買わない）
@@ -567,10 +627,11 @@ function venueList(X, keys) {
   for (const k of keys) { const t = meta(X, k).track; if (t && !m.has(t)) m.set(t, jyoOf(k) || '99'); }
   return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(x => x[0]);
 }
-function marksOf(X, k) {   // レース番号のボタンの印：W・転がし・当たり
+function marksOf(X, k) {   // レース番号のボタンの印：W・転がし・当たり（W・転がしの予定は買う設定の日だけ。実際に買った回はいつも）（2026/10/24）
   const w = wInfo(X, k), kx = kInfo(X, k), e = X.log[k], s = e ? settle(X, k, e) : null, o = [];
-  if ((w && (w.st === 'pick' || (w.st === 'cand' && w.proj && w.proj.st === 'buy'))) || (e && s.bought && (e.plan.bets || []).some(isW))) o.push('<i class="w">W</i>');
-  if (kx && !kx.sk && !kx.cx && (kx.leg || kx.K.status === 'alive')) o.push('<i class="k">転</i>');
+  const bb = e && s.bought ? (e.plan.bets || []) : [];
+  if ((w && (w.st === 'pick' || (w.st === 'cand' && w.proj && w.proj.st === 'buy'))) || bb.some(isW)) o.push('<i class="w">W</i>');
+  if ((kx && !kx.sk && !kx.cx && (kx.leg || kx.K.status === 'alive')) || bb.some(isK)) o.push('<i class="k">転</i>');
   if (s && s.bought && s.ret > 0) o.push('<i class="h">当</i>');
   return o.join('');
 }
@@ -634,7 +695,7 @@ function buyBoxes(X, k) {
   if (e && s.bought) {
     const bets = (e.plan && e.plan.bets) || [], hasW = bets.some(isW);
     h += `<div class="buy ${hasW ? 'w' : 'k'}"><h3>このレースで買った馬券<span>${!s.done ? '<span class="bd wait">結果待ち</span>' : s.ret > 0 ? `<span class="bd hit">当たり ${sgn(s.ret - s.cost)}</span>` : '<span class="bd miss">外れ</span>'}</span></h3>
-      <div class="tk" style="border-top:0;margin-top:0">${betGroups(X, k, bets)}</div>${w && w.st === 'pick' && w.plan ? `<div class="est">${estLine(w.plan)}</div>` : ''}</div>`;
+      <div class="tk" style="border-top:0;margin-top:0">${betGroups(X, k, bets)}${planInfo(e)}</div>${hasW && w && w.st === 'pick' && w.plan ? `<div class="est">${estLine(w.plan)}</div>` : ''}</div>`;
   } else if (w) {
     if (w.st === 'skip') h += `<div class="buy"><h3>勝負レースW：見送り<span class="bd wq">見送り</span></h3><div class="sub">${esc(String(w.why || '').replace(/^勝負レースW：/, ''))}</div></div>`;
     else {
@@ -642,6 +703,15 @@ function buyBoxes(X, k) {
       h += `<div class="buy w"><h3>${w.st === 'pick' ? `勝負レースW：買う${w.at ? `（${esc(w.at)} に決定）` : ''}` : `勝負レースW：${buyP ? '買う予定' : '候補（今のままなら見送り）'}`}<span class="bd ${buyP ? 'w' : 'wq'}">W</span></h3>
         <div class="tk" style="border-top:0;margin-top:0">${planLines(X, k, w.plan, 'W')}</div><div class="est">${estLine(w.plan)}</div>
         ${w.st === 'cand' ? `<div class="sub" style="margin-top:6px">${!buyP && w.proj && w.proj.why ? esc(w.proj.why) + '。' : ''}締切の約1分40秒前に、最新のオッズで決めます。</div>` : ''}</div>`;
+    }
+  } else {   // プラン（組D3・D3核・AI×D・AI×D3）の判断（2026/10/24）
+    const se = (S.status || {}).settings || {}, plOn = plansOn(se), c = X.cd[k] || {}, done = isDone(X.res[k]) || !!c.result;
+    if (e && DEC_DONE.includes(e.status) && e.status !== '購入済み') {
+      const rs = String(e.reason || e.error || '').split(/・(?=(?:勝負レースW|組D3|D3核|AI×D3|AI×D|複勝転がし)：)/).filter(Boolean);
+      h += `<div class="buy"><h3>このレースの判断：${esc(e.status)}<span class="bd wq">${esc(e.status)}</span></h3>${rs.length ? `<ul class="lst">${rs.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div>`;
+    } else if (X.d === todayStr() && !done && plOn.length) {
+      const sh = /新馬|未出走/.test(String(c.name || meta(X, k).name || ''));
+      h += `<div class="buy"><h3>${esc(plOn.map(p => p.title).join('・'))}<span class="bd ref">判断前</span></h3><div class="sub">${sh ? '新馬戦なので買いません。' : '締切の約1分40秒前に、そのときのオッズで買うか決めます。' + offTxt(wActive(X), kActive(X))}</div></div>`;
     }
   }
   if (kx && !(e && s.bought && (e.plan.bets || []).some(isK))) {
@@ -971,26 +1041,32 @@ async function renderPL() {
     const out = [];
     for (const d of days) {
       const X = await ensureDay(d);
-      const t = { d, cost: 0, ret: 0, n: 0, hit: 0, wc: 0, wr: 0, kc: 0, kr: 0 };
+      const t = { d, cost: 0, ret: 0, n: 0, hit: 0, wc: 0, wr: 0, kc: 0, kr: 0, pc: {}, pr: {} };
       for (const [k, e] of Object.entries(X.log)) {
         const s = settle(X, k, e); if (!s.bought) continue;
         t.n++; t.cost += s.cost; t.ret += s.ret; if (s.ret > 0) t.hit++;
         for (const b of e.plan.bets || []) {
           const y = payOf(X, k, b.type, b.key) * Math.floor((+b.yen || 0) / 100);
+          const pp = planOf(b);
           if (isK(b)) { t.kc += +b.yen || 0; t.kr += y; } else if (isW(b)) { t.wc += +b.yen || 0; t.wr += y; }
+          else if (pp) { t.pc[pp.title] = (t.pc[pp.title] || 0) + (+b.yen || 0); t.pr[pp.title] = (t.pr[pp.title] || 0) + y; }   // プラン（2026/10/24）
         }
       }
       out.push(t);
     }
     S.pl = out;
   }
-  const out = S.pl, T = out.reduce((a, r) => { for (const k of ['cost', 'ret', 'n', 'hit', 'wc', 'wr', 'kc', 'kr']) a[k] += r[k]; return a; }, { cost: 0, ret: 0, n: 0, hit: 0, wc: 0, wr: 0, kc: 0, kr: 0 });
   const roi = (c, r) => c ? Math.round(r / c * 100) + '%' : '-';
+  const out = S.pl, T = out.reduce((a, r) => { for (const k of ['cost', 'ret', 'n', 'hit', 'wc', 'wr', 'kc', 'kr']) a[k] += r[k];
+    for (const [t, v] of Object.entries(r.pc || {})) a.pc[t] = (a.pc[t] || 0) + v; for (const [t, v] of Object.entries(r.pr || {})) a.pr[t] = (a.pr[t] || 0) + v; return a; },
+    { cost: 0, ret: 0, n: 0, hit: 0, wc: 0, wr: 0, kc: 0, kr: 0, pc: {}, pr: {} });
+  const plOnS = plansOn(((S.status || {}).settings) || {}).map(p => p.title), plRows = PLANS.filter(p => T.pc[p.title] || plOnS.includes(p.title))
+    .map(p => { const c = T.pc[p.title] || 0, r = T.pr[p.title] || 0; return `<tr><td>${esc(p.title)}</td><td>${yen(c)}</td><td>${yen(r)}</td><td class="${cls(r - c)}">${roi(c, r)}</td></tr>`; }).join('');
   box.innerHTML = `<div class="cards">${[['投資（直近）', yen(T.cost)], ['払戻', yen(T.ret)], ['収支', `<span class="${cls(T.ret - T.cost)}">${sgn(T.ret - T.cost)}</span>`], ['回収率', roi(T.cost, T.ret)]]
       .map(([k, v]) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}</div>
     <div class="tw"><table class="st2"><tr><th>内わけ</th><th>投資</th><th>払戻</th><th>回収率</th></tr>
       <tr><td>勝負レースW</td><td>${yen(T.wc)}</td><td>${yen(T.wr)}</td><td class="${cls(T.wr - T.wc)}">${roi(T.wc, T.wr)}</td></tr>
-      <tr><td>複勝転がし</td><td>${yen(T.kc)}</td><td>${yen(T.kr)}</td><td class="${cls(T.kr - T.kc)}">${roi(T.kc, T.kr)}</td></tr></table></div>
+      <tr><td>複勝転がし</td><td>${yen(T.kc)}</td><td>${yen(T.kr)}</td><td class="${cls(T.kr - T.kc)}">${roi(T.kc, T.kr)}</td></tr>${plRows}</table></div>
     <h3 class="s">日ごと</h3>
     <div class="tw"><div class="scroll"><table class="st2"><tr><th>日付</th><th>R</th><th>的中</th><th>投資</th><th>払戻</th><th>収支</th></tr>${out.map(r => `<tr><td>${mdw(r.d)}</td><td>${r.n}</td><td>${r.hit}</td><td>${yen(r.cost)}</td><td>${yen(r.ret)}</td><td class="${cls(r.ret - r.cost)}">${sgn(r.ret - r.cost)}</td></tr>`).join('')}</table></div></div>
     <p class="sub">自動投票で実際に買った分です。結果が出ていないレースは払戻0円で数えています。複勝転がしは1回ごとの払戻（前の回の払戻を次に全部）で数えています。</p>`;
@@ -1261,14 +1337,17 @@ function reviewHtml(r, tot) {
 function renderSetting() {
   const st = S.status || {}, se = st.settings || {}, sa = st.state || {};
   const types = (se.types || []).map(t => t === 'shobuW' ? '勝負レースW' : PK[t] || t).join('・') || 'なし';
+  const plOn = plansOn(se), off = se.closeOffset ?? se.beforeClose;   // プラン（2026/10/24 スマホ版を合わせた）
   const th = storeGet('gatein_theme') || 'auto';
   $('#setting').innerHTML = `<h3 class="s" style="margin-top:4px">自動投票（家のPCの設定）</h3><div class="tw"><table class="kv">
-    <tr><td>自動投票</td><td>${se.enabled ? (se.paper ? '<b>ON（買わずに記録だけ）</b>' : '<b class="plus">ON</b>') : 'OFF'}</td></tr>
-    <tr><td>買い方</td><td>${esc(types)}</td></tr>
+    <tr><td>自動投票</td><td>${se.enabled ? (se.paper ? '<b>ON（買わずに記録だけ）</b>' : '<b class="plus">ON（実際に買う）</b>') : 'OFF'}</td></tr>
+    <tr><td>プラン</td><td>${plOn.length ? plOn.map(p => `<b>${esc(p.title)}</b><br><span class="sub">${esc(p.rule)}</span>`).join('<br>') : 'なし'}</td></tr>
+    <tr><td>勝負レースWなど</td><td>${esc(types)}</td></tr>
+    <tr><td>新馬戦</td><td>買わない</td></tr>
     <tr><td>複勝転がし</td><td>${se.korogashi && !se.paper ? '<b class="plus">買う</b>（1,000円から・1日5R・負けの上限の外）' : '買わない（記録だけ）'}</td></tr>
-    <tr><td>1日の負けの上限</td><td>${se.dayLoss ? yen(se.dayLoss) : 'なし'}</td></tr>
-    <tr><td>締切の何分前に判断</td><td>${se.closeOffset ?? se.beforeClose ?? '-'}分</td></tr>
-    <tr><td>いまの状態</td><td>${esc(sa.msg || sa.need || '-')}</td></tr></table></div>
+    <tr><td>1日の負けの上限</td><td>${se.dayLoss ? yen(se.dayLoss) + '<br><span class="sub">W とプランの合計</span>' : 'なし'}</td></tr>
+    <tr><td>判断の時刻</td><td>締切（発走の${off ?? '-'}分前）の約1分40秒前</td></tr>
+    <tr><td>いまの状態</td><td>${esc(stateMsg(st, S.D[todayStr()], se) || sa.need || '-')}</td></tr></table></div>
     <p class="sub">設定の変更や購入は家のパソコンだけでできます。この画面からは何も変えません。</p>
     <h3 class="s">表示の色</h3><div class="themes">${THEMES.map(([k, l]) => `<button type="button" data-th="${k}" class="${k === th ? 'on' : ''}">${l}</button>`).join('')}</div>
     <h3 class="s">ログイン</h3><button class="btn ghost" id="signout" type="button">ログアウト</button>`;
