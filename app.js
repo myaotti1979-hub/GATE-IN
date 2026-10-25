@@ -27,7 +27,7 @@ const PAYJP = [['tan', '単勝'], ['fuku', '複勝'], ['waku', '枠連'], ['umar
 const PK = { value: '狙い目 単勝', tan1: '◎の単勝', fuku1: '複勝◎', umaren: '馬連 流し', wide1: 'ワイド 1点', wideana: 'ワイド 穴流し', sanfuku: '3連複 軸1頭＋5頭', sanfuku6: '3連複 軸1頭＋6頭',
   box5: '3連複 5頭ボックス', box6: '3連複 6頭ボックス', jiku2: '3連複 2頭軸流し', jiku2s: '3連複 2頭軸 3点', box4: '3連複 4頭ボックス',
   _bought: '実際に買った馬券（自動投票）', _koro: '複勝転がし', _shobuW: '勝負レースW（記録）', _shobu: '勝負レース B（記録だけ）', _shobuC: '勝負レース C（記録だけ）',
-  cbD3: '組D3', cbK: 'D3核', abD: 'AI×D', abX: 'AI×D3' };
+  cbD3: '組D3', cbK: 'D3核', abD: 'AI×D', abX: 'AI×D3', ai: 'AIの買い目' };
 // プラン（家のPCの autobet.PLANS と同じ。各レースの締切の約1分40秒前に、そのときのオッズで買うか決める。新馬戦は買わない）（2026/10/24 スマホ版を合わせた）
 const PLANS = [{ set: 'planD3', pk: 'cbD3', title: '組D3', rule: '自信80%以上・1日3Rまで' },
   { set: 'planK', pk: 'cbK', title: 'D3核', rule: '自信70%以上・数の上限なし' },
@@ -179,11 +179,11 @@ async function loadIndex() {
   const names = ['autobet', 'results', 'shobu', 'win5', 'cards', 'predict', 'paddock', 'improve'];
   const ids = await Promise.all(names.map(n => folder(n, viewId)));
   const F = Object.fromEntries(names.map((n, i) => [n, ids[i]]));
-  const [logId, rvId] = await Promise.all([F.autobet ? folder('log', F.autobet) : null, F.improve ? folder('review', F.improve) : null]);
-  const [lg, rs, sb, w5, cd, pd, pdk, ab, rv, imp] = await Promise.all([logId, F.results, F.shobu, F.win5, F.cards, F.predict, F.paddock, F.autobet, rvId, F.improve].map(list));
+  const [logId, aiId, rvId] = await Promise.all([F.autobet ? folder('log', F.autobet) : null, F.autobet ? folder('log_ai', F.autobet) : null, F.improve ? folder('review', F.improve) : null]);
+  const [lg, rs, sb, w5, cd, pd, pdk, ab, rv, imp, la] = await Promise.all([logId, F.results, F.shobu, F.win5, F.cards, F.predict, F.paddock, F.autobet, rvId, F.improve, aiId].map(list));
   // 小さすぎるファイル（開催のない日の空の写し）は日付の一覧に入れない
   const byDay = (fs, min) => Object.fromEntries((fs || []).filter(f => /^\d{8}\.json$/.test(f.name) && !(min && f.size != null && +f.size < min)).map(f => [f.name.slice(0, 8), f.id]));
-  S.idx = { log: byDay(lg), res: byDay(rs), sb: byDay(sb), w5: byDay(w5), cd: byDay(cd), pd: byDay(pd), pdk: byDay(pdk), rv: byDay(rv),
+  S.idx = { log: byDay(lg), logAi: byDay(la), res: byDay(rs), sb: byDay(sb), w5: byDay(w5), cd: byDay(cd), pd: byDay(pd), pdk: byDay(pdk), rv: byDay(rv),
     cdBig: byDay(cd, 6000), resBig: byDay(rs, 2000), pdBig: byDay(pd, 6000), rvTotal: ((rv || []).find(f => f.name === 'total.json') || {}).id,
     study: ((imp || []).find(f => f.name === 'pdkstudy.json') || {}).id, studyAt: ((imp || []).find(f => f.name === 'pdkstudy.json') || {}).modifiedTime || '',
     study2: ((imp || []).find(f => f.name === 'study2.json') || {}).id, study2At: ((imp || []).find(f => f.name === 'study2.json') || {}).modifiedTime || '' };
@@ -191,7 +191,7 @@ async function loadIndex() {
   S.hb = hb; S.status = st; S.loadedAt = Date.now();
   renderHome();
   const I = S.idx, today = todayStr();
-  const days = new Set([...Object.keys(I.cdBig), ...Object.keys(I.pdBig), ...Object.keys(I.sb), ...Object.keys(I.log), ...Object.keys(I.resBig)]);
+  const days = new Set([...Object.keys(I.cdBig), ...Object.keys(I.pdBig), ...Object.keys(I.sb), ...Object.keys(I.log), ...Object.keys(I.logAi || {}), ...Object.keys(I.resBig)]);
   S.days = [...days].sort().reverse();
   if (!S.day || !S.days.includes(S.day)) S.day = S.days.includes(today) ? today : (S.days.find(d => d < today) || S.days[S.days.length - 1] || null);
   fillDays();
@@ -234,7 +234,7 @@ async function ensureDay(d) {
   if (!d || !S.idx) return null;
   if (S.D[d]) return S.D[d];
   const I = S.idx;
-  const [log, res0, sb, w5, cd, pd] = await Promise.all([readJson(I.log[d]), readJson(I.res[d]), readJson(I.sb[d]), readJson(I.w5[d]), readJson(I.cd[d]), readJson(I.pd[d])]);
+  const [log, res0, sb, w5, cd, pd, ai] = await Promise.all([readJson(I.log[d]), readJson(I.res[d]), readJson(I.sb[d]), readJson(I.w5[d]), readJson(I.cd[d]), readJson(I.pd[d]), readJson((I.logAi || {})[d])]);
   let L = log || {};
   const st = S.status;
   if (d === todayStr() && st && st.date === d && st.log && Object.keys(st.log).length) L = { ...L, ...st.log };   // 今日の分は自動投票の状態の写しも見る
@@ -244,7 +244,7 @@ async function ensureDay(d) {
     for (const r of (rv && rv.races) || []) res[r.key] = { result: (r.top3 || []).join('-'), order: r.top3 || [], _ret: r.bought ? +r.bought.ret || 0 : null, payout: {} };
   }
   const pre = `${d.slice(0, 4)}-${d.slice(4)}-`;
-  const X = { d, log: L, res, sb: sb || null, w5: w5 || null, cd: (cd && cd.races) || {}, cdMade: cd && cd.made,
+  const X = { d, log: L, ai: Object.fromEntries(Object.entries(ai || {}).filter(([, e]) => e && typeof e === 'object')), res, sb: sb || null, w5: w5 || null, cd: (cd && cd.races) || {}, cdMade: cd && cd.made,
     pd: Object.fromEntries(Object.entries(pd || {}).filter(([k]) => k.startsWith(pre))), pdk: undefined };
   S.D[d] = X;
   return X;
@@ -267,7 +267,7 @@ async function ensurePaddock(X) {
 // ---------- レースの情報 ----------
 function raceKeys(X) {
   const pre = `${X.d.slice(0, 4)}-${X.d.slice(4)}-`, ks = new Set();
-  for (const o of [X.cd, X.pd, X.res, X.log]) for (const k of Object.keys(o || {})) if (k.startsWith(pre)) ks.add(k);
+  for (const o of [X.cd, X.pd, X.res, X.log, X.ai]) for (const k of Object.keys(o || {})) if (k.startsWith(pre)) ks.add(k);
   const sb = X.sb || {};
   for (const c of ((sb.W || {}).cands || [])) ks.add(c.key);
   for (const k of Object.keys((sb.W || {}).races || {})) ks.add(k);
@@ -474,11 +474,12 @@ function renderToday() {
   const d = X.d, today = d === todayStr(), now = nowMin(), sb = X.sb || {}, W = sb.W || null, K = sb.K || null;
   const st = S.status || {}, se = st.settings || {};
   const ents = Object.entries(X.log).map(([k, e]) => ({ k, e, m: meta(X, k), s: settle(X, k, e) }));
-  const bought = ents.filter(x => x.s.bought).sort((a, b) => (tmin(a.m.time) ?? 9999) - (tmin(b.m.time) ?? 9999) || rnOf(a.k) - rnOf(b.k));
+  const aents = Object.entries(X.ai || {}).map(([k, e]) => ({ k, e, m: meta(X, k), s: settle(X, k, e), ai: true }));   // AI の買い目を画面から買った分（2026/10/25）
+  const bought = [...ents, ...aents].filter(x => x.s.bought).sort((a, b) => (tmin(a.m.time) ?? 9999) - (tmin(b.m.time) ?? 9999) || rnOf(a.k) - rnOf(b.k) || (a.ai ? 1 : 0) - (b.ai ? 1 : 0));
   const cost = bought.reduce((a, x) => a + x.s.cost, 0), ret = bought.reduce((a, x) => a + x.s.ret, 0), open = bought.filter(x => !x.s.done).length;
   const hits = bought.filter(x => x.s.ret > 0).length;
   const skips = ents.filter(x => !x.s.bought && !x.e.error && x.e.status && x.e.status !== '送信中');   // 判断の前（取り直しだけの記録）は数えない（2026/10/24）
-  const fails = ents.filter(x => !x.s.bought && x.e.error);
+  const fails = [...ents, ...aents].filter(x => !x.s.bought && x.e.error);
   const PJ = wProj(sb), cap = PJ ? PJ.cap : (sb.wCap === undefined ? 5 : sb.wCap);
   const nW = W ? Object.values(W.races || {}).filter(x => x.pick).length : bought.filter(x => (x.e.plan.bets || []).some(isW)).length;
   const plOn = plansOn(se), wOn = wActive(X), kOn = kActive(X);   // プラン（組D3・D3核・AI×D・AI×D3）・W と転がしを買う設定か（2026/10/24）
@@ -531,7 +532,7 @@ function renderToday() {
     else if (se.paper) state = `<div class="state">買わずに記録だけ（本番と同じように決めて記録。即PATでは買いません）${st.state && st.state.msg ? '<br>' + esc(stateMsg(st, X, se)) : ''}</div>`;
     else if (st.state && st.state.msg) state = `<div class="state">${esc(stateMsg(st, X, se))}</div>`;
   }
-  let h = `<div class="sum"><div class="hd"><span>${today ? '今日' : 'この日'}の収支（実際に買った分）</span><b>${mdw(d)}</b></div>
+  let h = `<div class="sum"><div class="hd"><span>${today ? '今日' : 'この日'}の収支（実際に買った分・AIの買い目も）</span><b>${mdw(d)}</b></div>
     <div class="big"><span class="pl ${cls(pl)}">${sgn(pl)}</span><span class="io">投資 ${yen(cost)}・払戻 ${yen(ret)}${open ? `<br>結果待ち ${open}R` : ''}</span></div>
     <div class="mini">${mini.map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}</div>${state}</div>`;
   // ---- 複勝転がし ----
@@ -559,7 +560,7 @@ function renderToday() {
   // ---- 買った馬券 ----
   h += `<div class="sh"><h2>買った馬券</h2><span>${bought.length}R</span></div>`;
   h += bought.length ? bought.map(x => boughtCard(X, x)).join('') : `<p class="empty">${today ? 'まだありません。買ったら、ここに券種・組・金額・結果が出ます' : 'この日に買った馬券はありません'}</p>`;
-  if (fails.length) h += fails.map(x => `<div class="tl w"><div class="h"><div class="tm">${esc(x.m.time || '')}</div><div class="bds"><span class="bd w">買えなかった</span></div></div><div class="rn">${rTitle(x.m)}</div><div class="x minus">${esc(x.e.error)}</div></div>`).join('');
+  if (fails.length) h += fails.map(x => `<div class="tl w"><div class="h"><div class="tm">${esc(x.m.time || '')}</div><div class="bds"><span class="bd w">買えなかった${x.ai ? '（AIの買い目）' : ''}</span></div></div><div class="rn">${rTitle(x.m)}</div><div class="x minus">${esc(x.e.error)}</div></div>`).join('');
   h += chkListHtml(X);
   // ---- 折りたたみ ----
   if (skips.length) {
@@ -642,15 +643,19 @@ function planInfo(e) {   // プランで買ったとき：その日の何R目・
   const p = (e && e.plan) || {}, o = PLANS.filter(q => p[q.pk]).map(q => { const i = p[q.pk] || {}; return `${q.title} ${i.nth || '?'}R目・自信 ${P(i.conf)}`; });
   return o.length ? `<div class="x">${esc(o.join('／'))}</div>` : '';
 }
+function aiInfo(e) {   // AI の買い目を画面から買ったとき：どの読みか（2026/10/25）
+  const p = (e && e.plan) || {};
+  return `<div class="x">AIの買い目を画面から買った分${p.model ? `（${esc(String(p.model).replace(/^claude-/, ''))}` : ''}${p.aiAt ? `・${esc(String(p.aiAt).slice(11, 16))} の読み` : ''}${p.model ? '）' : ''}${p.note ? `：${esc(String(p.note).slice(0, 80))}` : ''}</div>`;
+}
 function boughtCard(X, x) {
   const { k, e, m, s } = x, bets = (e.plan && e.plan.bets) || [], r = X.res[k];
   const hasW = bets.some(isW), hasK = bets.some(isK);
   const bd = !s.done ? '<span class="bd wait">結果待ち</span>' : s.ret > 0 ? `<span class="bd hit">当たり ${sgn(s.ret - s.cost)}</span>` : '<span class="bd miss">外れ</span>';
   const ord = r && (r.order || []).length ? (r.order || []).slice(0, 3).join('-') : r && r.result ? r.result : '';
   const w = wInfo(X, k);
-  return `<div class="tl ${s.ret > 0 ? 'hit' : hasW ? 'w' : hasK ? 'k' : ''}"><div class="h"><div class="tm">${esc(m.time || '')}</div><div class="bds">${bd}</div></div>
+  return `<div class="tl ${s.ret > 0 ? 'hit' : hasW ? 'w' : hasK ? 'k' : ''}"><div class="h"><div class="tm">${esc(m.time || '')}</div><div class="bds">${x.ai ? '<span class="bd ref">AIの買い目</span>' : ''}${bd}</div></div>
     <div class="rn">${rTitle(m)}${e.at ? `<small>${esc(atHM(e.at))} 購入</small>` : ''}</div>
-    <div class="tk">${betGroups(X, k, bets)}${hasW && w && w.st === 'pick' && w.plan ? `<div class="x">${estLine(w.plan)}</div>` : ''}${planInfo(e)}</div>
+    <div class="tk">${betGroups(X, k, bets)}${hasW && w && w.st === 'pick' && w.plan ? `<div class="x">${estLine(w.plan)}</div>` : ''}${x.ai ? aiInfo(e) : planInfo(e)}</div>
     <div class="res"><span>${ord ? `着順 ${esc(ord)}` : '結果はまだ'}</span>${s.done ? `<b class="${cls(s.ret - s.cost)}">${sgn(s.ret - s.cost)}</b>` : `<b>${yen(s.cost)}</b>`}</div></div>`;
 }
 function bcHtml(X) {   // 勝負レース B・C（記録だけ。実際には買わない）
@@ -713,7 +718,9 @@ function marksOf(X, k) {   // レース番号のボタンの印：W・転がし�
   if ((w && (w.st === 'pick' || (w.st === 'cand' && w.proj && w.proj.st === 'buy'))) || bb.some(isW)) o.push('<i class="w">W</i>');
   if ((kx && !kx.sk && !kx.cx && (kx.leg || kx.K.status === 'alive')) || bb.some(isK)) o.push('<i class="k">転</i>');
   if (!(e && s.bought)) { const px = projRow(X, k); if (px && px.buy) o.push('<i style="background:var(--blue);color:var(--onblue)">予</i>'); }   // プランの買う見込み（家のPCの見込み。2026/10/24）
-  if (s && s.bought && s.ret > 0) o.push('<i class="h">当</i>');
+  const ea = (X.ai || {})[k], sa = ea ? settle(X, k, ea) : null;   // AI の買い目を画面から買った分（2026/10/25）
+  if (sa && sa.bought && !(e && s.bought)) o.push('<i style="background:var(--blue);color:var(--onblue)">買</i>');
+  if ((s && s.bought && s.ret > 0) || (sa && sa.bought && sa.ret > 0)) o.push('<i class="h">当</i>');
   return o.join('');
 }
 $('#rVenues').addEventListener('click', e => {
@@ -773,6 +780,10 @@ function dayTrend(X, k) {   // その日の馬場の傾向（家のPCの予想�
 function buyBoxes(X, k) {
   const e = X.log[k], s = e ? settle(X, k, e) : null, w = wInfo(X, k), kx = kInfo(X, k);
   let h = '';
+  const ea = (X.ai || {})[k], sa = ea ? settle(X, k, ea) : null;   // AI の買い目を画面から買った分（2026/10/25）
+  if (ea && sa.bought) h += `<div class="buy"><h3>AIの買い目で買った馬券<span>${!sa.done ? '<span class="bd wait">結果待ち</span>' : sa.ret > 0 ? `<span class="bd hit">当たり ${sgn(sa.ret - sa.cost)}</span>` : '<span class="bd miss">外れ</span>'}</span></h3>
+      <div class="tk" style="border-top:0;margin-top:0">${betGroups(X, k, (ea.plan && ea.plan.bets) || [])}${aiInfo(ea)}</div><div class="sub" style="margin-top:6px">${yen(sa.cost)}${ea.at ? `・${esc(atHM(ea.at))} 購入` : ''}</div></div>`;
+  else if (ea && ea.error) h += `<div class="buy"><h3>AIの買い目：買えなかった<span class="bd wq">エラー</span></h3><div class="sub">${esc(ea.error)}</div></div>`;
   if (e && s.bought) {
     const bets = (e.plan && e.plan.bets) || [], hasW = bets.some(isW);
     h += `<div class="buy ${hasW ? 'w' : 'k'}"><h3>このレースで買った馬券<span>${!s.done ? '<span class="bd wait">結果待ち</span>' : s.ret > 0 ? `<span class="bd hit">当たり ${sgn(s.ret - s.cost)}</span>` : '<span class="bd miss">外れ</span>'}</span></h3>
@@ -1124,11 +1135,15 @@ async function renderPL() {
   const box = $('#pl');
   if (!S.pl) {
     box.innerHTML = '<p class="empty">読み込み中…</p>';
-    const days = Object.keys(S.idx.log).sort().reverse().slice(0, 14);
+    const days = [...new Set([...Object.keys(S.idx.log), ...Object.keys(S.idx.logAi || {})])].sort().reverse().slice(0, 14);
     const out = [];
     for (const d of days) {
       const X = await ensureDay(d);
-      const t = { d, cost: 0, ret: 0, n: 0, hit: 0, wc: 0, wr: 0, kc: 0, kr: 0, pc: {}, pr: {} };
+      const t = { d, cost: 0, ret: 0, n: 0, hit: 0, wc: 0, wr: 0, kc: 0, kr: 0, ac: 0, ar: 0, pc: {}, pr: {} };
+      for (const [k, e] of Object.entries(X.ai || {})) {   // AI の買い目を画面から買った分（2026/10/25）
+        const s = settle(X, k, e); if (!s.bought) continue;
+        t.n++; t.cost += s.cost; t.ret += s.ret; if (s.ret > 0) t.hit++; t.ac += s.cost; t.ar += s.ret;
+      }
       for (const [k, e] of Object.entries(X.log)) {
         const s = settle(X, k, e); if (!s.bought) continue;
         t.n++; t.cost += s.cost; t.ret += s.ret; if (s.ret > 0) t.hit++;
@@ -1144,19 +1159,19 @@ async function renderPL() {
     S.pl = out;
   }
   const roi = (c, r) => c ? Math.round(r / c * 100) + '%' : '-';
-  const out = S.pl, T = out.reduce((a, r) => { for (const k of ['cost', 'ret', 'n', 'hit', 'wc', 'wr', 'kc', 'kr']) a[k] += r[k];
+  const out = S.pl, T = out.reduce((a, r) => { for (const k of ['cost', 'ret', 'n', 'hit', 'wc', 'wr', 'kc', 'kr', 'ac', 'ar']) a[k] += r[k] || 0;
     for (const [t, v] of Object.entries(r.pc || {})) a.pc[t] = (a.pc[t] || 0) + v; for (const [t, v] of Object.entries(r.pr || {})) a.pr[t] = (a.pr[t] || 0) + v; return a; },
-    { cost: 0, ret: 0, n: 0, hit: 0, wc: 0, wr: 0, kc: 0, kr: 0, pc: {}, pr: {} });
+    { cost: 0, ret: 0, n: 0, hit: 0, wc: 0, wr: 0, kc: 0, kr: 0, ac: 0, ar: 0, pc: {}, pr: {} });
   const plOnS = plansOn(((S.status || {}).settings) || {}).map(p => p.title), plRows = PLANS.filter(p => T.pc[p.title] || plOnS.includes(p.title))
     .map(p => { const c = T.pc[p.title] || 0, r = T.pr[p.title] || 0; return `<tr><td>${esc(p.title)}</td><td>${yen(c)}</td><td>${yen(r)}</td><td class="${cls(r - c)}">${roi(c, r)}</td></tr>`; }).join('');
   box.innerHTML = `<div class="cards">${[['投資（直近）', yen(T.cost)], ['払戻', yen(T.ret)], ['収支', `<span class="${cls(T.ret - T.cost)}">${sgn(T.ret - T.cost)}</span>`], ['回収率', roi(T.cost, T.ret)]]
       .map(([k, v]) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}</div>
     <div class="tw"><table class="st2"><tr><th>内わけ</th><th>投資</th><th>払戻</th><th>回収率</th></tr>
       <tr><td>勝負レースW</td><td>${yen(T.wc)}</td><td>${yen(T.wr)}</td><td class="${cls(T.wr - T.wc)}">${roi(T.wc, T.wr)}</td></tr>
-      <tr><td>複勝転がし</td><td>${yen(T.kc)}</td><td>${yen(T.kr)}</td><td class="${cls(T.kr - T.kc)}">${roi(T.kc, T.kr)}</td></tr>${plRows}</table></div>
+      <tr><td>複勝転がし</td><td>${yen(T.kc)}</td><td>${yen(T.kr)}</td><td class="${cls(T.kr - T.kc)}">${roi(T.kc, T.kr)}</td></tr>${plRows}${T.ac ? `<tr><td>AIの買い目（画面から）</td><td>${yen(T.ac)}</td><td>${yen(T.ar)}</td><td class="${cls(T.ar - T.ac)}">${roi(T.ac, T.ar)}</td></tr>` : ''}</table></div>
     <h3 class="s">日ごと</h3>
     <div class="tw"><div class="scroll"><table class="st2"><tr><th>日付</th><th>R</th><th>的中</th><th>投資</th><th>払戻</th><th>収支</th></tr>${out.map(r => `<tr><td>${mdw(r.d)}</td><td>${r.n}</td><td>${r.hit}</td><td>${yen(r.cost)}</td><td>${yen(r.ret)}</td><td class="${cls(r.ret - r.cost)}">${sgn(r.ret - r.cost)}</td></tr>`).join('')}</table></div></div>
-    <p class="sub">自動投票で実際に買った分です。結果が出ていないレースは払戻0円で数えています。複勝転がしは1回ごとの払戻（前の回の払戻を次に全部）で数えています。</p>`;
+    <p class="sub">自動投票と、AIの買い目を画面から買った分です（実際に買った分）。結果が出ていないレースは払戻0円で数えています。複勝転がしは1回ごとの払戻（前の回の払戻を次に全部）で数えています。</p>`;
 }
 
 // ============ 反省会 ============
