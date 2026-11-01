@@ -27,12 +27,14 @@ const PAYJP = [['tan', '単勝'], ['fuku', '複勝'], ['waku', '枠連'], ['umar
 const PK = { value: '狙い目 単勝', tan1: '◎の単勝', fuku1: '複勝◎', umaren: '馬連 流し', wide1: 'ワイド 1点', wideana: 'ワイド 穴流し', sanfuku: '3連複 軸1頭＋5頭', sanfuku6: '3連複 軸1頭＋6頭',
   box5: '3連複 5頭ボックス', box6: '3連複 6頭ボックス', jiku2: '3連複 2頭軸流し', jiku2s: '3連複 2頭軸 3点', box4: '3連複 4頭ボックス',
   _bought: '実際に買った馬券（自動投票）', _koro: '複勝転がし', _shobuW: '勝負レースW（記録）', _shobu: '勝負レース B（記録だけ）', _shobuC: '勝負レース C（記録だけ）',
-  cbD3: '組D3', cbK: 'D3核', abD: 'AI×D', abX: 'AI×D3', ai: 'AIの買い目' };
+  cbY: '読みの買い目', cbD3: '組D3', cbK: 'D3核', cbE: '期待ワイド', abD: 'AI×D', abX: 'AI×D3', ai: 'AIの買い目' };
 // プラン（家のPCの autobet.PLANS と同じ。各レースの締切の約1分40秒前に、そのときのオッズで買うか決める。新馬戦は買わない）（2026/10/24 スマホ版を合わせた）
-const PLANS = [{ set: 'planD3', pk: 'cbD3', title: '組D3', rule: '自信80%以上・1日3Rまで' },
+const PLANS = [{ set: 'planY', pk: 'cbY', title: '読みの買い目', rule: '能力＋シミュ＋Sonnet の読み（オッズは見送りと点数だけ）・自信70%以上・1日3R・1R 3,000円' },   // 2026/10/31 夜
+  { set: 'planD3', pk: 'cbD3', title: '組D3', rule: '自信80%以上・1日3Rまで' },
   { set: 'planK', pk: 'cbK', title: 'D3核', rule: '自信70%以上・数の上限なし' },
   { set: 'planAiD', pk: 'abD', title: 'AI×D', rule: 'AIの読み・自信80%以上・1日3Rまで' },
-  { set: 'planAiD3', pk: 'abX', title: 'AI×D3', rule: 'AIの読み・自信80%以上・1日3Rまで' }];
+  { set: 'planAiD3', pk: 'abX', title: 'AI×D3', rule: 'AIの読み・自信80%以上・1日3Rまで' },
+  { set: 'planE', pk: 'cbE', title: '期待ワイド', rule: '全部のレース・見込み×倍率' }];
 const planOf = b => PLANS.find(p => b && (b.pk === p.pk || b.title === p.title)) || null;
 const plansOn = se => PLANS.filter(p => se && se[p.set]);
 const DEC_DONE = ['購入済み', '記録のみ', '見送り', '要確認', '時間切れ', '資金不足', 'エラー', '送信中'];
@@ -370,16 +372,26 @@ const altFmt = v => (+v).toFixed(1);
 function altTkLines(tk) {
   const w = tk.filter(t => t.type === 'wide'), s3 = tk.filter(t => t.type === 'sanfuku'), out = [];
   if (w.length) { const ys = [...new Set(w.map(t => t.yen))]; out.push(`ワイド ${w.map(t => `${t.key}${t.odds ? `（${altFmt(t.odds)}倍）` : ''}${ys.length > 1 ? ` ${yen(t.yen)}` : ''}`).join('・')}${ys.length === 1 ? ` 各${yen(ys[0])}` : ''}`); }
+  for (const ty of ['umaren', 'umatan']) { const L = tk.filter(t => t.type === ty); if (!L.length) continue; const ys = [...new Set(L.map(t => t.yen))];   // 読みの買い目の馬連・馬単
+    out.push(`${TJ[ty] || ty} ${L.map(t => `${t.key}${t.odds ? `（${altFmt(t.odds)}倍）` : ''}${ys.length > 1 ? ` ${yen(t.yen)}` : ''}`).join('・')}${ys.length === 1 ? ` 各${yen(ys[0])}` : ''}`); }
   if (s3.length) {
     const ys = [...new Set(s3.map(t => t.yen))], T = s3.map(t => t.key.split('-').map(Number)), ax = T[0].filter(h => T.every(t => t.includes(h))), each = ys.length === 1 ? ` 各${yen(ys[0])}` : '';
     if (s3.length > 1 && ax.length === 2) out.push(`3連複 ${ax.join('・')} − ${[...new Set(T.flat().filter(h => !ax.includes(h)))].sort((a, b) => a - b).join('・')}（2頭軸ながし ${s3.length}点）${each}`);
     else out.push(`3連複 ${s3.map(t => t.key + (ys.length > 1 ? ` ${yen(t.yen)}` : '')).join('・')}${each}`);
   }
+  { const L = tk.filter(t => t.type === 'santan'); if (L.length) { const ys = [...new Set(L.map(t => t.yen))]; out.push(`3連単 ${L.map(t => t.key + (ys.length > 1 ? ` ${yen(t.yen)}` : '')).join('・')}${ys.length === 1 ? ` 各${yen(ys[0])}` : ''}`); } }
   return out;
 }
-const ALT_CK = { 組D3: 'D3', D3核: 'K', 'AI×D3': 'aiD3', 'AI×D': 'aiD' };
+const ALT_CK = { 読みの買い目: 'Y', 組D3: 'D3', D3核: 'K', 'AI×D3': 'aiD3', 'AI×D': 'aiD' };
 function altFromCb(ck, c) {
   if (!c) return { why: '組み合わせを作れない', cost: 0, lines: [], out: '', at: '' };
+  if (ck === 'Y') {   // 読みの買い目（2026/10/31 夜）：買い目＝Y（線の下で見送ったときは同じ作り方の yInfo.alt）。外した組＝安すぎる・トータル100%を超えない
+    const yi = c.yInfo; if (!yi || yi.conf == null) return { why: c.yWhy || 'AI の読みがまだ', cost: 0, lines: [], out: '', at: '' };
+    const od = t => +(((yi.cand || []).find(z => z && z.type === t.type && String(z.key) === String(t.key)) || {}).odds) || 0;
+    const tk = ((c.Y && c.Y.length ? c.Y : yi.alt) || []).filter(t => t && t.key && +t.yen >= 100).map(t => ({ type: t.type, key: String(t.key), yen: Math.floor(+t.yen / 100) * 100, odds: od(t) }));
+    const out = (yi.cand || []).filter(z => z && z.why).map(z => `${TJ[z.type] || z.type} ${z.key}${+z.odds ? ` ${altFmt(z.odds)}倍` : ''}（${z.why}）`);
+    return { why: '', cost: tk.reduce((a, t) => a + t.yen, 0), lines: altTkLines(tk), out: out.join('・'), at: String(yi.at || ''), tk2: tk };
+  }
   const ai = /^ai/.test(ck);
   if (ai && !c.ai) return { why: c.aiWhy || 'AI の読みがまだ', cost: 0, lines: [], out: '', at: '' };
   const W = (ai ? c.ai.wide : c.wide) || [], od = new Map(W.filter(w => w && w.key).map(w => [String(w.key), +w.odds || 0]));
@@ -394,17 +406,18 @@ function altFromCb(ck, c) {
   return { why: '', cost: tk.reduce((a, t) => a + t.yen, 0), lines: altTkLines(tk), out: out.join('・'), at: ai ? String(c.ai.at || '') : '', tk2: tk };
 }
 function altDecided(X, k, e) {   // 見送ったレースの「買うなら」（折りたたみ）
-  const c = e && e.plan && e.plan.cb; if (!c || !c.top) return '';
-  const nm = [...new Set([...String(e.reason || '').matchAll(/(?:^|・)(組D3|D3核|AI×D3|AI×D)：/g)].map(m => m[1]))];
+  const c = e && e.plan && e.plan.cb; if (!c || !(c.top || c.yInfo)) return '';
+  const nm = [...new Set([...String(e.reason || '').matchAll(/(?:^|・)(読みの買い目|組D3|D3核|AI×D3|AI×D)：/g)].map(m => m[1]))];
   if (!nm.length) return '';
   const R = X.res[k], pay = R && R.payout && Object.keys(R.payout).length ? (t, key) => payOf(X, k, t, key) : null, done = !!pay;
   const body = `<div class="tk" style="border-top:0;margin-top:0">${nm.map(n => altRow(n, altFromCb(ALT_CK[n], c), pay)).join('')}</div><p class="sub" style="margin:6px 0 0">判断のときの予想とオッズ（自動投票の控え）で、${ALT_NOTE.replace('自動投票は買いません', '自動投票は買っていません')}</p>`;
   return fold('r.alt.' + k, '見送ったけれど買うなら', done ? '結果つき' : '判断のときの予想で', body);
 }
+const confTxt = x => x.confY != null ? `自信（能力＋シミュ）${P(x.confY)}${x.confYai ? '' : '（アプリの◎・読みの前）'}` : `自信 ${P(x.conf)}`;   // 読みの買い目（2026/10/31 夜）
 function projCard(X, x) {   // 今日のタブ：買う見込みのレース
   const m = meta(X, x.k), on = x.plans.filter(q => q.st !== 'skip'), off = x.plans.filter(q => q.st === 'skip');
   return `<div class="tl"><div class="h"><div class="tm">${esc(x.at)}</div><div class="bds">${on.map(q => `<span class="bd ref">${esc(q.name)}${q.st === 'ai' ? ' AIしだい' : ''}</span>`).join('')}</div></div>` +
-    `<div class="rn">${rTitle(m)}<small>自信 ${P(x.conf)}・発走 ${esc(x.time || '')}</small></div>` +
+    `<div class="rn">${rTitle(m)}<small>${confTxt(x)}・発走 ${esc(x.time || '')}</small></div>` +
     `<div class="tk">${on.map(pjLine).join('')}${off.length ? `<div class="x">${off.map(q => `${esc(q.name)}：${esc(q.why)}`).join('・')}</div>` : ''}</div></div>`;
 }
 function wInfo(X, k) {
@@ -719,8 +732,14 @@ function marksOf(X, k) {   // レース番号のボタンの印：W・転がし�
   if ((kx && !kx.sk && !kx.cx && (kx.leg || kx.K.status === 'alive')) || bb.some(isK)) o.push('<i class="k">転</i>');
   if (!(e && s.bought)) { const px = projRow(X, k); if (px && px.buy) o.push('<i style="background:var(--blue);color:var(--onblue)">予</i>'); }   // プランの買う見込み（家のPCの見込み。2026/10/24）
   const ea = (X.ai || {})[k], sa = ea ? settle(X, k, ea) : null;   // AI の買い目を画面から買った分（2026/10/25）
-  if (sa && sa.bought && !(e && s.bought)) o.push('<i style="background:var(--blue);color:var(--onblue)">買</i>');
-  if ((s && s.bought && s.ret > 0) || (sa && sa.bought && sa.ret > 0)) o.push('<i class="h">当</i>');
+  // 買ったレース（自動投票・画面から）：結果の前は「買」・当たりは「当」・外れは「外」（2026/10/31 ユーザー「外れたレースには外れマークを入れておいてほしい／買ったけど外れた場合どのレースを買ったのかわからない」）
+  const bA = !!(s && s.bought), bB = !!(sa && sa.bought);
+  if (bA || bB) {
+    const ret = (bA ? s.ret : 0) + (bB ? sa.ret : 0), done = (!bA || s.done) && (!bB || sa.done);
+    if (ret > 0) o.push('<i class="h">当</i>');
+    else if (done) o.push('<i style="background:var(--lose);color:var(--card)" title="買ったレース・外れ">外</i>');
+    else o.push('<i style="background:var(--blue);color:var(--onblue)" title="買ったレース・結果待ち">買</i>');
+  }
   return o.join('');
 }
 $('#rVenues').addEventListener('click', e => {
@@ -799,7 +818,7 @@ function buyBoxes(X, k) {
   } else {   // プラン（組D3・D3核・AI×D・AI×D3）の判断（2026/10/24）
     const se = (S.status || {}).settings || {}, plOn = plansOn(se), c = X.cd[k] || {}, done = isDone(X.res[k]) || !!c.result;
     if (e && DEC_DONE.includes(e.status) && e.status !== '購入済み') {
-      const rs = String(e.reason || e.error || '').split(/・(?=(?:勝負レースW|組D3|D3核|AI×D3|AI×D|複勝転がし)：)/).filter(Boolean);
+      const rs = String(e.reason || e.error || '').split(/・(?=(?:勝負レースW|読みの買い目|組D3|D3核|AI×D3|AI×D|期待ワイド|複勝転がし)：)/).filter(Boolean);
       h += `<div class="buy"><h3>このレースの判断：${esc(e.status)}<span class="bd wq">${esc(e.status)}</span></h3>${rs.length ? `<ul class="lst">${rs.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div>`;
       if (e.status === '見送り') h += altDecided(X, k, e);   // 見送ったけれど買うなら（2026/10/24 夜）
     } else if (X.d === todayStr() && !done && plOn.length) {
@@ -807,7 +826,7 @@ function buyBoxes(X, k) {
       const alts = px ? px.plans.filter(q => q.st === 'skip' && q.alt) : [];   // 見送り見込みでも買うなら（2026/10/24 夜。新馬戦も参考に）
       const altH = alts.length ? fold('r.alt.' + k, '見送り見込みでも買うなら', esc(alts.map(q => q.name).join('・')), `<div class="tk" style="border-top:0;margin-top:0">${alts.map(q => altRow(q.name, q.alt)).join('')}</div><p class="sub" style="margin:6px 0 0">${ALT_NOTE}倍率は保存した予想（${esc(px.saved || '—')}）のときのもの。</p>`) : '';
       if (px && !px.sh && !sh)   // 家のPCの見込み（2026/10/24）
-        h += `<div class="buy"><h3>自動投票の予定：${esc(px.lab)}<span class="bd ref">自信 ${P(px.conf)}</span></h3><div class="tk" style="border-top:0;margin-top:0">${px.plans.map(pjLine).join('')}</div>` +
+        h += `<div class="buy"><h3>自動投票の予定：${esc(px.lab)}<span class="bd ref">${confTxt(px)}</span></h3><div class="tk" style="border-top:0;margin-top:0">${px.plans.map(pjLine).join('')}</div>` +
           `<div class="sub" style="margin-top:6px">保存した予想（${esc(px.saved || '—')}）での家のPCの見込みです。締切の約1分40秒前（${esc(px.at)}ごろ）に、そのときの予想とオッズで決めます。${offTxt(wActive(X), kActive(X))}</div></div>` + altH;
       else h += `<div class="buy"><h3>${esc(plOn.map(p => p.title).join('・'))}<span class="bd ref">判断前</span></h3><div class="sub">${sh || (px && px.sh) ? '新馬戦なので買いません。' : '締切の約1分40秒前に、そのときのオッズで買うか決めます。' + offTxt(wActive(X), kActive(X))}</div></div>` + altH;
     }
@@ -935,7 +954,7 @@ function predTable(X, k) {
       `<td>${P(h.win)}</td><td>${P(h.fuku)}</td><td><span class="o">${odds ? Number(odds).toFixed(1) : '-'}</span>${pop ? `<div class="sub">${pop}人気</div>` : ''}</td>` +
       (PDK ? `<td>${pkCell(pk)}</td>` : '') + (done ? `<td class="fin">${f || (cc.scr ? '消' : '-')}</td>` : '') + '</tr>';
   }).join('');
-  const head = `<tr><th></th><th style="text-align:left">馬</th><th>勝率</th><th>3着内</th><th>オッズ</th>${PDK ? '<th>パドック</th>' : ''}${done ? '<th>着</th>' : ''}</tr>`;
+  const head = `<tr><th></th><th style="text-align:left">馬</th><th>勝率<br><small>能力</small></th><th>3着内<br><small>能力＋シミュ</small></th><th>オッズ</th>${PDK ? '<th>パドック</th>' : ''}${done ? '<th>着</th>' : ''}</tr>`;
   const at = p && p.savedAt ? new Date(p.savedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '';
   return `<div class="sh"><h2>予想</h2><span>勝率の順${at ? `・${at}の予想` : ''}</span></div>
     <div class="tw"><div class="scroll"><table class="pt" data-k="${esc(k)}">${head}${rows}</table></div>${hs.length > 6 ? `<button type="button" class="tmore" data-pdall="1">${S.pdAll ? '上位6頭だけにする ▲' : `全頭を見る（${hs.length}頭） ▶`}</button>` : ''}</div>
@@ -1413,7 +1432,7 @@ function wShHtml(W, lab, day) {   // 勝負レースW「好調な日に伸ばし
 }
 // プランの反省会（2026/10/24 ユーザー「反省会の買い目分析はWだけじゃなくてD3や核D，AI×D3もしっかりしてください」）：家のPCの反省会（planrev.py）の数。
 //   決め方どおり＝その日の全部のレースに自動投票の決め方を当てはめた分（買わなかったプランも）・線のすぐ下／1日の数で外れ＝もし買っていたら（決め方は変えない）
-const PR_PL = [['D3', '組D3'], ['K', 'D3核'], ['AX', 'AI×D3'], ['AD', 'AI×D']];
+const PR_PL = [['Y', '読みの買い目'], ['D3', '組D3'], ['K', 'D3核'], ['AX', 'AI×D3'], ['AD', 'AI×D']];   // 読みの買い目：2026/10/31 夜
 function planRevHtml(P, lab) {
   if (!P || !P.sum) return '';
   const c = s => s && s.n ? `${s.n}R ${s.hit}的中<br><b class="${cls(s.ret - s.cost)}">${s.cost ? Math.round(s.ret / s.cost * 100) : 0}%</b>` : '-';
@@ -1427,7 +1446,7 @@ function planRevHtml(P, lab) {
 }
 // 線ぎめの材料と読みの外れ方（2026/10/24 夜 ユーザー「このあたりもラインぎめの材料としても使えるかもしれないですね　読みと何が外れてたのかも」）。家のPCの反省会（planrev.py）の band・parts・yomi
 const PR_BANDS = [['b85', '85%以上', 0.85], ['b80', '80〜85%', 0.80], ['b75', '75〜80%', 0.75], ['b70', '70〜75%', 0.70], ['b65', '65〜70%', 0.65], ['b00', '65%未満', 0]];
-const PR_LINE = { D3: 0.8, K: 0.7, AX: 0.8, AD: 0.8 };
+const PR_LINE = { Y: 0.70, D3: 0.8, K: 0.7, AX: 0.8, AD: 0.8 };
 function planYomiM(P) {
   if (!P || !P.sum) return '';
   const S = P.sum, Y = P.yomi || {}, PT = P.parts || {}, ids = PR_PL.filter(([id]) => S[id] && Object.keys(S[id].band || {}).length);
@@ -1453,10 +1472,22 @@ function planRacesM(P) {
   if (!pick.length) return '';
   return `<h3 class="s">プランで選んだレース（${pick.length}R）</h3><div class="tw">` + pick.map(r => {
     const ps = PR_PL.map(([id, nm]) => { const p = (r.plans || {})[id]; if (!p || p.why != null) return ''; const bt = (p.bought || []).length;
-      const hits = (p.legs || []).filter(l => l.p).map(l => `${l.t === 'wide' ? 'ワイド' : '3連複'} ${l.k}`).join('・');
-      const cutHit = (p.cut || []).filter(l => l.p).map(l => `ワイド ${l.k}`).join('・');
+      const hits = (p.legs || []).filter(l => l.p).map(l => `${TJ[l.t] || l.t} ${l.k}`).join('・');
+      const cutHit = (p.cut || []).filter(l => l.p).map(l => `${TJ[l.t] || l.t} ${l.k}`).join('・');
       return `<div>${nm} ${p.nth}R目${bt ? '（買った）' : '（記録だけ）'}：${yen(p.cost)}→<b class="${cls(p.ret - p.cost)}">${yen(p.ret)}</b>${hits ? `<span class="sub">（${esc(hits)}）</span>` : ''}${cutHit ? `<span class="sub">　線で外した当たり：${esc(cutHit)}</span>` : ''}</div>`; }).join('');
-    return `<div style="margin:6px 0"><b>${esc(r.post || '')} ${esc(r.name)}</b> <span class="sub">自信${r.conf != null ? Math.round(r.conf * 100) : '-'}%・結果 ${(r.res || []).join('-')}${r.ai ? '' : '・AI 間に合わず'}${r.done === false ? '・直前のオッズ×' : ''}</span>${ps}</div>`; }).join('') + '</div>';
+    return `<div style="margin:6px 0"><b>${esc(r.post || '')} ${esc(r.name)}</b> <span class="sub">自信${r.conf != null ? Math.round(r.conf * 100) : '-'}%${r.confY != null ? `・読み ${Math.round(r.confY * 100)}%` : ''}・結果 ${(r.res || []).join('-')}${r.ai ? '' : '・AI 間に合わず'}${r.done === false ? '・直前のオッズ×' : ''}</span>${ps}</div>`; }).join('') + '</div>';
+}
+// 読みの反省会（2026/10/31 夜）：オッズなしの読み（アプリ＝能力＋シミュ・能力・シミュ・Sonnet）と人気（市場の基準）。家のPCの反省会（yomirev.py）の数
+const YR_M = [['app', 'アプリ（能力＋シミュ）'], ['ml', '能力'], ['sim', 'シミュ'], ['ai', 'Sonnet'], ['pop', '人気（基準）'], ['appV', 'オッズ込み（参考）']];
+function yomiRvM(Y, lab) {
+  if (!Y || !Y.R || !Object.keys(Y.R).length) return '';
+  const pc = (a, b) => b ? Math.round(a / b * 100) + '%' : '-';
+  const rows = YR_M.filter(([id]) => Y.R[id] && Y.R[id].n).map(([id, nm]) => { const o = Y.R[id];
+    return `<tr><td>${nm}</td><td>${o.n}</td><td>${pc(o.p1, o.n)}<br><small>${o.p1}/${o.n}</small></td><td>${pc(o.c3, o.n * 3)}</td><td>${o.nh ? (o.ll / o.nh).toFixed(3) : '-'}</td></tr>`; }).join('');
+  const g = (Y.T || {}).gain || {};
+  return `<h3 class="s">読みの反省会（オッズなし・${esc(lab)}・${Y.races || 0}R）</h3><div class="tw"><div class="scroll"><table class="st2"><tr><th>読み</th><th>R</th><th>◎の<br>3着内</th><th>5頭の<br>3着内</th><th>確率の<br>当たり</th></tr>${rows}</table></div></div>` +
+    (g.n ? `<p class="sub">前に行ければ（シミュ）：${g.n}頭のうち前に行けた ${g.front}頭・そのとき3着内 ${g.frontIn3}/${g.front}</p>` : '') +
+    '<p class="sub">5頭の3着内＝上位5頭に入った1〜3着の割合。確率の当たり＝3着内の対数損失（小さいほど良い）。オッズ込みは参考。</p>';
 }
 function reviewHtml(r, tot) {
   if (!r) return '<p class="empty">読めませんでした</p>';
@@ -1470,6 +1501,7 @@ function reviewHtml(r, tot) {
       <div class="card"><div class="k">本命の3着内</div><div class="v">${s.axisIn3 ?? '-'}/${s.races ?? '-'}</div></div>
       <div class="card"><div class="k">3連複 的中</div><div class="v">${s.hit ?? '-'}</div></div>
       <div class="card"><div class="k">位置取りの当たり</div><div class="v">${sh.posCorr != null ? sh.posCorr.toFixed(2) : '-'}</div></div></div>
+    ${yomiRvM(r.yomi, 'この日')}${rec && rec.yomi ? yomiRvM(rec.yomi, '直近8週') : ''}
     ${planRevHtml(r.plans, 'この日')}${planRacesM(r.plans)}${rec && rec.plans ? planRevHtml(rec.plans, '直近8週') : ''}
     ${trackHtml(s.track, 'この日')}
     ${rec && rec.track ? trackHtml(rec.track, '直近8週') : ''}
