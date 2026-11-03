@@ -392,3 +392,17 @@ h3.s { font-size: 16.5px; font-weight: 800; margin: 18px 2px 8px; }
 .tw.near { border-style: dashed; }
 .tw.near .nh { font-size: 14px; font-weight: 800; color: var(--muted); padding: 8px 12px 0; }
 .tw.near .lst { margin: 0; padding: 2px 12px 6px; }
+
+/* v49（2026/11/3 資料47 の 13）：反省会の目次・レースのボタンの◎の着順・利益の範囲で追加・小さな枠 */
+.rvtoc { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
+.rvtoc b { font-size: 13.5px; margin-right: 2px; }
+.rvtoc a { font-size: 13px; font-weight: 700; color: var(--ink); text-decoration: none; border: 1.5px solid var(--line); border-radius: 999px; padding: 3px 10px; background: var(--card); line-height: 1.5; }
+.rsel button small.fin { font-size: 10.5px; color: var(--muted); }
+.rsel button small.fin.in3 { color: var(--win); }
+.rsel button.on small.fin, .rsel button.on small.fin.in3 { color: var(--card); }
+.yx { margin: 6px 0 8px; padding: 8px 10px; border-radius: 10px; background: var(--chip); font-size: 13.5px; line-height: 1.6; }
+.tw.tbox { padding: 9px 12px; }
+.tw.tbox > b { display: block; font-size: 14.5px; margin-bottom: 2px; }
+.wxg { white-space: nowrap; }
+.st2.wxt td, .st2.wxt th { padding: 6px 3px; font-size: 13px; }
+.st2.wxt small { font-size: 11px; }

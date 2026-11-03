@@ -556,6 +556,7 @@ function renderToday() {
     if (plOn.length) h += `<div class="tl"><div class="h"><div class="tm">${nd ? hhmm(Math.floor(nd.at)) : ''}</div><div class="bds">${plOn.map(p => `<span class="bd ref">${esc(p.title)}</span>`).join('')}</div></div>` +
       `<div class="rn">${nd ? `次の判断：${rTitle(meta(X, nd.k))}<small>締切 ${hhmm(nd.close)}</small>` : '今日の判断はこれで終わりです'}</div>` +
       `<div class="sub">${pj ? `下は家のPCの見込みです（保存した最新の予想 ${esc(pj.saved || '—')} を、自動投票と同じ決め方に当てはめたもの・${esc(pj.at || '')} 計算）。締切の約1分40秒前に、そのときの予想とオッズで決め直します。新馬戦は買いません。` : `${esc(plOn.map(p => p.title).join('・'))} は、各レースの締切の約1分40秒前に、そのときのオッズで買うか決めます。前もって決まった予定はありません（新馬戦は買いません）。`}${offTxt(wOn, kOn)}</div></div>`;
+    if (plOn.length) h += yxLine(X, se, st);   // 読みの買い目の利益の範囲で追加（2026/11/2〜）
     if (plOn.length && pj) {   // プランの買う見込み（家のPCの見込み）と、見送り見込み（たたむ）
       h += pbuy.length ? pbuy.map(x => projCard(X, x)).join('') : '<p class="empty">今の予想では、このあと買う見込みのレースはありません</p>';
       if (prest.length) h += fold('t.pjrest', `見送り見込みのレース ${prest.length}R`, '買うならの買い目つき', `<ul class="lst">${prest.map(x => { const ws = [...new Set(x.plans.map(q => q.why).filter(w => w && !/^自信 /.test(w)))];
@@ -653,7 +654,7 @@ function betGroups(X, k, bets) {   // 買った券：同じ種類で何点もあ
   return out.join('');
 }
 function planInfo(e) {   // プランで買ったとき：その日の何R目・自信（2026/10/24）
-  const p = (e && e.plan) || {}, o = PLANS.filter(q => p[q.pk]).map(q => { const i = p[q.pk] || {}; return `${q.title} ${i.nth || '?'}R目・自信 ${P(i.conf)}`; });
+  const p = (e && e.plan) || {}, o = PLANS.filter(q => p[q.pk]).map(q => { const i = p[q.pk] || {}; return `${q.title} ${i.nth || '?'}R目${i.add ? `・追加${i.add}R目（今日の収支 ${sgn(+i.ypl || 0)}・ハードル +${(+i.hurdle || 0).toLocaleString('ja-JP')}円）` : ''}・自信 ${P(i.conf)}`; });
   return o.length ? `<div class="x">${esc(o.join('／'))}</div>` : '';
 }
 function aiInfo(e) {   // AI の買い目を画面から買ったとき：どの読みか（2026/10/25）
@@ -767,7 +768,7 @@ function renderRace() {
     cur = (today && ks.find(k => !isDone(X.res[k]) && (tmin(meta(X, k).time) ?? 9999) >= now - 2)) || ks.find(k => marksOf(X, k)) || ks[0];
   }
   $('#rSel').innerHTML = ks.map(k => { const m = meta(X, k), mk = marksOf(X, k);
-    return `<button type="button" data-k="${esc(k)}" class="${k === cur ? 'on' : ''}${isDone(X.res[k]) ? ' done' : ''}">${m.no}R<small>${esc(m.time || '')}</small>${mk ? `<span class="m">${mk}</span>` : ''}</button>`; }).join('');
+    return `<button type="button" data-k="${esc(k)}" class="${k === cur ? 'on' : ''}${isDone(X.res[k]) ? ' done' : ''}">${m.no}R<small>${esc(m.time || '')}</small>${honFin(X, k)}${mk ? `<span class="m">${mk}</span>` : ''}</button>`; }).join('');
   $('#race').innerHTML = raceHtml(X, cur);
   ensurePaddock(X).then(pdk => { if (pdk && S.tab === 'race' && S.D[S.day] === X && $('#race').dataset.k === cur && !$('#race').dataset.pk) { $('#race').innerHTML = raceHtml(X, cur); $('#race').dataset.pk = '1'; } });
   $('#race').dataset.k = cur; delete $('#race').dataset.pk;
@@ -956,7 +957,7 @@ function predTable(X, k) {
   }).join('');
   const head = `<tr><th></th><th style="text-align:left">馬</th><th>勝率<br><small>能力</small></th><th>3着内<br><small>能力＋シミュ</small></th><th>オッズ</th>${PDK ? '<th>パドック</th>' : ''}${done ? '<th>着</th>' : ''}</tr>`;
   const at = p && p.savedAt ? new Date(p.savedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '';
-  return `<div class="sh"><h2>予想</h2><span>勝率の順${at ? `・${at}の予想` : ''}</span></div>
+  return `<div class="sh"><h2>予想</h2><span>印の順（能力＋シミュの3着内）${at ? `・${at}の予想` : ''}</span></div>
     <div class="tw"><div class="scroll"><table class="pt" data-k="${esc(k)}">${head}${rows}</table></div>${hs.length > 6 ? `<button type="button" class="tmore" data-pdall="1">${S.pdAll ? '上位6頭だけにする ▲' : `全頭を見る（${hs.length}頭） ▶`}</button>` : ''}</div>
     ${PDK ? '<p class="foot2">パドックの欄を押すと、AIの診断の中身が出ます（予想・買い目には入れていません）。</p>' : ''}`;
 }
@@ -1213,6 +1214,7 @@ async function renderReview() {
   const [r, tot] = await Promise.all([S.rv[S.rvDay] !== undefined ? S.rv[S.rvDay] : readJson(I.rv[S.rvDay]), S.rv._total !== undefined ? S.rv._total : readJson(I.rvTotal)]);
   S.rv[S.rvDay] = r; S.rv._total = tot;
   $('#review').innerHTML = sub + reviewHtml(r, tot);
+  try { rvTocM(); } catch (e) { console.error(e); }
 }
 $('#review').addEventListener('click', e => {
   const b = e.target.closest('button[data-rvsub]');
@@ -1469,13 +1471,14 @@ function planYomiM(P) {
 function planRacesM(P) {
   const rows = (P && P.races) || [];
   const pick = rows.filter(r => PR_PL.some(([id]) => { const p = (r.plans || {})[id]; return p && (p.why == null || (p.bought || []).length); }));
-  if (!pick.length) return '';
+  const yw = yWouldM(rows);
+  if (!pick.length) return yw;
   return `<h3 class="s">プランで選んだレース（${pick.length}R）</h3><div class="tw">` + pick.map(r => {
     const ps = PR_PL.map(([id, nm]) => { const p = (r.plans || {})[id]; if (!p || p.why != null) return ''; const bt = (p.bought || []).length;
       const hits = (p.legs || []).filter(l => l.p).map(l => `${TJ[l.t] || l.t} ${l.k}`).join('・');
       const cutHit = (p.cut || []).filter(l => l.p).map(l => `${TJ[l.t] || l.t} ${l.k}`).join('・');
-      return `<div>${nm} ${p.nth}R目${bt ? '（買った）' : '（記録だけ）'}：${yen(p.cost)}→<b class="${cls(p.ret - p.cost)}">${yen(p.ret)}</b>${hits ? `<span class="sub">（${esc(hits)}）</span>` : ''}${cutHit ? `<span class="sub">　線で外した当たり：${esc(cutHit)}</span>` : ''}</div>`; }).join('');
-    return `<div style="margin:6px 0"><b>${esc(r.post || '')} ${esc(r.name)}</b> <span class="sub">自信${r.conf != null ? Math.round(r.conf * 100) : '-'}%${r.confY != null ? `・読み ${Math.round(r.confY * 100)}%` : ''}・結果 ${(r.res || []).join('-')}${r.ai ? '' : '・AI 間に合わず'}${r.done === false ? '・直前のオッズ×' : ''}</span>${ps}</div>`; }).join('') + '</div>';
+      return `<div>${nm} ${p.nth}R目${p.add ? `・<b>追加${p.add}</b><span class="sub">（その時の収支 ${sgn(+p.ypl || 0)}）</span>` : ''}${bt ? '（買った）' : '（記録だけ）'}：${yen(p.cost)}→<b class="${cls(p.ret - p.cost)}">${yen(p.ret)}</b>${hits ? `<span class="sub">（${esc(hits)}）</span>` : ''}${cutHit ? `<span class="sub">　線で外した当たり：${esc(cutHit)}</span>` : ''}</div>`; }).join('');
+    return `<div style="margin:6px 0"><b>${esc(r.post || '')} ${esc(r.name)}</b> <span class="sub">自信${r.conf != null ? Math.round(r.conf * 100) : '-'}%${r.confY != null ? `・読み ${Math.round(r.confY * 100)}%` : ''}・結果 ${(r.res || []).join('-')}${r.ai ? '' : '・AI 間に合わず'}${r.done === false ? '・直前のオッズ×' : ''}</span>${ps}</div>`; }).join('') + '</div>' + yw;
 }
 // 読みの反省会（2026/10/31 夜）：オッズなしの読み（アプリ＝能力＋シミュ・能力・シミュ・Sonnet）と人気（市場の基準）。家のPCの反省会（yomirev.py）の数
 const YR_M = [['app', 'アプリ（能力＋シミュ）'], ['ml', '能力'], ['sim', 'シミュ'], ['ai', 'Sonnet'], ['pop', '人気（基準）'], ['appV', 'オッズ込み（参考）']];
@@ -1486,7 +1489,7 @@ function yomiRvM(Y, lab) {
     return `<tr><td>${nm}</td><td>${o.n}</td><td>${pc(o.p1, o.n)}<br><small>${o.p1}/${o.n}</small></td><td>${pc(o.c3, o.n * 3)}</td><td>${o.nh ? (o.ll / o.nh).toFixed(3) : '-'}</td></tr>`; }).join('');
   const g = (Y.T || {}).gain || {};
   return `<h3 class="s">読みの反省会（オッズなし・${esc(lab)}・${Y.races || 0}R）</h3><div class="tw"><div class="scroll"><table class="st2"><tr><th>読み</th><th>R</th><th>◎の<br>3着内</th><th>5頭の<br>3着内</th><th>確率の<br>当たり</th></tr>${rows}</table></div></div>` +
-    (g.n ? `<p class="sub">前に行ければ（シミュ）：${g.n}頭のうち前に行けた ${g.front}頭・そのとき3着内 ${g.frontIn3}/${g.front}</p>` : '') +
+    yomiTenM(Y.T || {}) +
     '<p class="sub">5頭の3着内＝上位5頭に入った1〜3着の割合。確率の当たり＝3着内の対数損失（小さいほど良い）。オッズ込みは参考。</p>';
 }
 function reviewHtml(r, tot) {
@@ -1502,10 +1505,11 @@ function reviewHtml(r, tot) {
       <div class="card"><div class="k">3連複 的中</div><div class="v">${s.hit ?? '-'}</div></div>
       <div class="card"><div class="k">位置取りの当たり</div><div class="v">${sh.posCorr != null ? sh.posCorr.toFixed(2) : '-'}</div></div></div>
     ${yomiRvM(r.yomi, 'この日')}${rec && rec.yomi ? yomiRvM(rec.yomi, '直近8週') : ''}
+    ${wxBlockM(r, rec)}
     ${planRevHtml(r.plans, 'この日')}${planRacesM(r.plans)}${rec && rec.plans ? planRevHtml(rec.plans, '直近8週') : ''}
     ${trackHtml(s.track, 'この日')}
     ${rec && rec.track ? trackHtml(rec.track, '直近8週') : ''}
-    ${wShHtml(r.wShadow, 'この日', true)}${rec && rec.wShadow ? wShHtml(rec.wShadow, '直近8週') : ''}
+    ${oldRecM(wShHtml(r.wShadow, 'この日', true) + (rec && rec.wShadow ? wShHtml(rec.wShadow, '直近8週') : ''))}
     <h3 class="s">買い方ごとの成績（この日）</h3>
     <div class="tw"><div class="scroll"><table class="st2"><tr><th>買い方</th><th>R</th><th>的中</th><th>購入</th><th>払戻</th><th>回収率</th></tr>${top.map(row).join('')}${rest.length && top.length ? '<tr class="grp"><td colspan="6">予想の買い目を100円ずつ買った場合</td></tr>' : ''}${rest.map(row).join('')}</table></div></div>
     ${pdkHtml(s.paddock, 'この日')}${rec && rec.paddock ? pdkHtml(rec.paddock, '直近8週') : ''}
@@ -1546,3 +1550,91 @@ $('#setting').addEventListener('click', e => {
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
 if (!CFG.clientId || CFG.clientId.startsWith('ここに')) { showLogin(); $('#signin').disabled = true; $('#loginMsg').textContent = 'config.js にクライアントIDを入れてください'; }
 else initAuth();
+
+// ===================== v49（2026/11/3 資料47 の 13：PC に合わせる。見た目だけ） =====================
+// レースの番号のボタン：確定したレースの◎（能力＋シミュの3着内の1番）の着順（PC の左の一覧と同じ）
+function honFin(X, k) {
+  const r = X.res[k], p = X.pd[k], order = (r && r.order) || [];
+  if (!isDone(r) || !order.length || !p || !(p.horses || []).length) return '';
+  const i = order.indexOf(+p.horses[0].no), f = i >= 0 ? i + 1 : 0;
+  return `<small class="fin${f && f <= 3 ? ' in3' : ''}">◎${f ? f + '着' : '着外'}</small>`;
+}
+// 読みの買い目の「利益の範囲で追加」（2026/11/2〜）：家のPCの自動投票の今日の数（status.json の state.yx）
+function yxLine(X, se, st) {
+  const y = st && st.state && st.state.yx;
+  if (!y || String(y.date || '') !== X.d || !(se && se.planY)) return '';
+  const pend = (y.pend || []).length;
+  return `<div class="yx"><b>利益の範囲で追加</b>：読みの買い目の今日の収支 <b class="${cls(+y.pl || 0)}">${sgn(+y.pl || 0)}</b>（払戻が出た分）・基本 ${y.nBase || 0}R・追加 ${y.nAdd || 0}R。` +
+    (pend ? `前の追加（${esc(y.pend.join('・'))}）の結果が出るまで、次の追加はしません。` : `次の追加は今日の収支が ${sgn(+y.next || 0)} 以上のとき（自信${P(y.th)}以上のレースを1R）。`) + '</div>';
+}
+// 読みの反省会：展開の答え合わせ（シミュ）。家のPCの読みの反省会と同じ数
+function yomiTenM(T) {
+  const pc = (a, b) => b ? Math.round(a / b * 100) + '%' : '-', p = T.pace || {}, h = T.hana || {}, g = T.grp || {}, n = T.gain || {};
+  const L = [p.n ? `ペース：シミュのいちばんありそうなペースが当たった <b>${p.hit}/${p.n}（${pc(p.hit, p.n)}）</b>` : '',
+    h.n ? `ハナ：シミュでハナの割合がいちばんの馬が1角で先頭 <b>${h.hit}/${h.n}（${pc(h.hit, h.n)}）</b>` : '',
+    g.n ? `1角の位置の組（逃げ・先行・中団・後方）：いちばんありそうな組が当たった ${g.hit}/${g.n}頭（${pc(g.hit, g.n)}）` : '',
+    n.n ? `前に行ければ：${n.n}頭のうち前に行けた ${n.front}頭・そのとき3着内 <b>${n.frontIn3}/${n.front}</b>${n.backIn3 != null ? `・行けなかったとき ${n.backIn3}/${n.n - n.front}` : ''}` : ''].filter(Boolean);
+  return L.length ? `<div class="tw tbox"><b>展開の答え合わせ（シミュ）</b>${L.map(t => `<div class="sub">${t}</div>`).join('')}</div>` : '';
+}
+// 天気・馬場と結果（2026/11/2〜・家のPCの反省会の wx）：記録だけで、予想には使っていない
+var WX_G = [['dDry', 'ダート・乾き', '含水率4%以下'], ['dWet', 'ダート・湿り', '4%より上'], ['tSoft', '芝・軟らかめ', 'クッション9未満'], ['tStd', '芝・ふつう', '9〜10'], ['tHard', '芝・硬め', '10より上'],
+  ['tRain', '芝・その日に雨', ''], ['hw', '直線の向かい風', '2m/s以上'], ['tw', '直線の追い風', '2m/s以上'], ['calm', '風なし', '2m/s未満']];
+function wxSumM(W, lab) {
+  if (!W || !Object.keys(W).length) return '';
+  const pc = (a, b) => b ? Math.round(a / b * 100) + '%' : '-';
+  const rows = WX_G.filter(([g]) => W[g] && W[g].n).map(([g, nm, sub]) => { const t = W[g];
+    return `<tr><td><span class="wxg">${nm}</span>${sub ? `<br><small class="wxg">${sub}</small>` : ''}</td><td>${t.n}</td><td>${t.ld ? `${pc(t.ld3, t.ld)}<br><small>${t.ld3}/${t.ld}</small>` : '-'}</td>` +
+      `<td>${t.fn ? `${pc(t.fi, t.fn)}<br><small>${t.fi}/${t.fn}頭</small>` : '-'}</td><td>${t.pn ? pc(t.ph, t.pn) : '-'}</td><td>${t.ln ? `${t.lb / t.ln > 0 ? '+' : ''}${(t.lb / t.ln).toFixed(2)}` : '-'}</td></tr>`; }).join('');
+  return rows ? `<h3 class="s">天気・馬場と結果（${esc(lab)}）</h3><div class="tw"><div class="scroll"><table class="st2 wxt"><tr><th>組</th><th>R</th><th>逃げた馬<br>の3着内</th><th>前の組<br>の3着内</th><th>ペース<br>の当たり</th><th>上がり<br>のずれ</th></tr>${rows}</table></div></div>` : '';
+}
+function wxRaceM(races) {   // その日：レースごと（たたむ）
+  const R = (races || []).filter(x => x && x.wx); if (!R.length) return '';
+  const f1 = v => v == null ? '-' : (+v).toFixed(1), PJ = { S: 'スロー', M: 'ミドル', H: 'ハイ' };
+  const li = x => { const w = x.wx, sh = x.shape || {};
+    const a = [w.t != null ? f1(w.t) + '℃' : '', w.ws != null ? `風 ${esc(w.wd || '')} ${f1(w.ws)}m${w.hd != null ? `（向かい ${w.hd > 0 ? '+' : ''}${f1(w.hd)}）` : ''}` : '', (w.rd || 0) > 0 ? `雨 ${f1(w.rd)}mm` : '',
+      w.m != null ? `含水率 ${f1(w.m)}／${f1(w.m4)}%` : '', w.cu != null ? `クッション値 ${f1(w.cu)}` : ''].filter(Boolean);
+    const b = [`ペース ${PJ[sh.paceP] || '-'}→<b>${PJ[sh.paceA] || '-'}</b>`, sh.l3Bias != null ? `上がりのずれ ${sh.l3Bias > 0 ? '+' : ''}${(+sh.l3Bias).toFixed(2)}秒` : '',
+      w.lead ? `逃げた馬 <b class="${w.lead <= 3 ? 'plus' : ''}">${w.lead}着</b>` : '', Array.isArray(w.fr) ? `前の組の3着内 ${w.fr[0]}/${w.fr[1]}` : '', x.axisFin ? `◎ ${x.axisFin}着` : ''].filter(Boolean);
+    return `<li><b>${esc(x.post || '')}</b> ${esc(x.name || '')}<span class="sub">${esc(w.sf || '')}${w.dist ? w.dist + 'm' : ''}${w.go ? '・' + esc(w.go) : ''}</span>` +
+      `${a.length ? `<span class="sub">${a.join('・')}</span>` : ''}<span class="sub">${b.join('・')}</span></li>`; };
+  return fold('rv.wx', '天気・馬場と結果：レースごと', `${R.length}R`, `<ul class="lst">${R.map(li).join('')}</ul>`, false);
+}
+var WX_NOTE_M = '<p class="sub">天気・馬場＝判断のとき（無ければ保存した予想）の気象庁の観測（発走の20分前までの1時間）と、JRA の朝の含水率（ゴール前／4角）・芝のクッション値。逃げた馬＝いちばん前の角で1番手。前の組＝その角で前から4分の1。上がりのずれ＝シミュ−実際（＋は予想が遅い）。風なし＝直線の向かい風・追い風が2m/s未満。1つのレースが馬場の組と風の組の両方に入ります。記録だけで、予想には使っていません。</p>';
+function wxBlockM(r, rec) {
+  const s = (r && r.summary) || {};
+  const h = wxSumM(s.wx, 'この日') + wxRaceM(r && r.races) + (rec && rec.wx ? wxSumM(rec.wx, '直近8週') : '');
+  return h ? h + WX_NOTE_M : '';
+}
+// 昔の記録（今は買っていない作り方の答え合わせ）はたたむ（PC の反省会と同じ）
+function oldRecM(h) { return h ? fold('rv.old', '昔の記録', '', h, false, '勝負レースW の「好調な日に伸ばしていたら」など、今は買っていない作り方') : ''; }
+// 読みの買い目で買わなかったレース：理由ごとに、もし買っていたら（外れも全部。家のPCの反省会と同じ数え方）
+function yWouldM(rows) {
+  const g = {};
+  for (const r of rows || []) { const p = (r.plans || {}).Y; if (!p || p.why == null) continue;
+    const L = (p.legs || []).length ? p.legs : (p.alt || []), c = L.reduce((a, l) => a + (+l.y || 0), 0), t = L.reduce((a, l) => a + (+l.r || 0), 0); if (!c) continue;
+    const x = g[p.why] || (g[p.why] = { n: 0, hit: 0, cost: 0, ret: 0 }); x.n++; x.cost += c; x.ret += t; x.hit += t > 0 ? 1 : 0; }
+  const L = Object.entries(g); if (!L.length) return '';
+  return `<div class="tw tbox"><b>読みの買い目で買わなかったレース（もし買っていたら・外れも全部）</b>` +
+    L.map(([w, x]) => `<div class="sub">${esc(w)}：${x.n}R・${x.hit}的中 ${yen(x.cost)}→<b class="${cls(x.ret - x.cost)}">${yen(x.ret)}</b>（${x.cost ? Math.round(x.ret / x.cost * 100) : 0}%）</div>`).join('') + '</div>';
+}
+// 反省会の目次（起動のときに先に呼ばれても困らないように、上は var と function だけ）（PC と同じ。押すとその見出しへ。たたんだ所は開く）
+function rvTocM() {
+  const box = $('#review'); if (!box) return;
+  const hs = [...box.querySelectorAll(':scope > h3.s, :scope > details.fold')];
+  if (hs.length < 3) return;
+  // 見出しの名前ごとに1つ（この日→直近8週→これまで全部の順に並んでいるので、最初の所へ飛ぶ）。プランの中の小見出しは入れない（スマホで短く）
+  const lab = h => String(h.tagName === 'DETAILS' ? ((h.querySelector('summary .t') || h).firstChild || {}).textContent || '' : h.textContent).split('（')[0].split('：')[0].trim();
+  const SUBH = /^(自信の高さごと|買い目の部分ごと|読みの外れ方)$/, seen = new Set(), items = [];
+  hs.forEach((h, i) => { h.id = 'rvm' + i; const l = lab(h); if (!l || SUBH.test(l) || seen.has(l)) return; seen.add(l); items.push([h.id, l]); });
+  const t = document.createElement('div'); t.className = 'rvtoc';
+  t.innerHTML = '<b>目次</b>' + items.map(([id, l]) => `<a href="#${id}" data-rvm="${id}">${esc(l)}</a>`).join('');
+  const sb = box.querySelector(':scope > .rsub'); if (sb) sb.after(t); else box.prepend(t);
+}
+$('#review').addEventListener('click', e => {
+  const a = e.target.closest('a[data-rvm]'); if (!a) return;
+  e.preventDefault();
+  const t = document.getElementById(a.dataset.rvm); if (!t) return;
+  if (t.tagName === 'DETAILS') t.open = true;
+  const top = $('.bar') ? $('.bar').offsetHeight : 0;
+  window.scrollTo({ top: Math.max(0, t.getBoundingClientRect().top + window.scrollY - top - 8), behavior: 'smooth' });
+});
