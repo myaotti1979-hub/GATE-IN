@@ -1713,14 +1713,37 @@ function aiBoxM(X, k) {
 }
 // ---- 展開の読み（家のPCのシミュ。PC の展開のタブと同じ数：1角の位置の組の割合とその組の3着内・前に行ければ） ----
 var TK_GM = ['逃げ', '先行', '中団', '後方'];
-function tkOfM(h, N) {   // PC の tkOf と同じ：回数の少ない組をそのシミュ全体の3着内へ40回分寄せ、アプリの3着内の高さに合わせる
+// 1角の位置の組の割合の直し（2026/11/3 資料49。PC の tkCal・ai_pred.py の tk_cal と同じ式）：シミュの割合は前の割合が低めで平ら。
+//   実際の1角は並んだ馬が同じ順位になるので、前から4分の1以内の馬はシミュより約14%多い。逃げ＝ハナの直し・前（逃げ＋先行）と中団より前は傾きと合計をそろえる
+var TK_CALM = [[1.138, 1.144], [0.956, 1.060]], TK_HANAM = [1.163, 1.563];
+function tkCalM(hs) {   // 返り値 Map（馬番 → 直した [逃げ, 先行, 中団, 後方]）
+  const M = new Map();
+  const H = (hs || []).filter(h => h && h.tk && Array.isArray(h.tk.pg) && h.tk.pg.length === 4 && h.tk.pg.every(v => v != null && isFinite(+v)));
+  if (H.length < 2) return M;
+  const lgc = p => { const q = Math.min(0.998, Math.max(0.002, +p)); return Math.log(q / (1 - q)); }, sg = z => 1 / (1 + Math.exp(-z));
+  const z0 = H.map(h => sg(TK_HANAM[0] + TK_HANAM[1] * lgc(h.tk.pg[0]))), t0 = z0.reduce((a, v) => a + v, 0), C = [z0.map(v => v / t0)], n = H.length;
+  [1, 2].forEach((lev, i) => {
+    const b = TK_CALM[i][0], rho = TK_CALM[i][1], raw = H.map(h => h.tk.pg.slice(0, lev + 1).reduce((a, v) => a + +v, 0)), z = raw.map(v => b * lgc(v));
+    const tot = Math.min(n - 0.01, rho * raw.reduce((a, v) => a + v, 0));
+    let lo = -20, hi = 20;
+    for (let k = 0; k < 50; k++) { const c = (lo + hi) / 2; if (z.reduce((a, v) => a + sg(v + c), 0) > tot) hi = c; else lo = c; }
+    const c = (lo + hi) / 2; C.push(z.map(v => sg(v + c)));
+  });
+  H.forEach((h, i) => {
+    const m = Math.min(0.999, Math.max(C[0][i], C[1][i], C[2][i])), f = Math.min(m, Math.max(C[0][i], C[1][i])), a = Math.min(f, C[0][i]);
+    M.set(+h.no, [a, f - a, m - f, 1 - m]);
+  });
+  return M;
+}
+function tkOfM(h, N, pc) {   // PC の tkOf と同じ：回数の少ない組をそのシミュ全体の3着内へ40回分寄せ、アプリの3着内の高さに合わせる
   const t = h && h.tk; if (!t || !Array.isArray(t.pg) || t.pg.length !== 4 || !Array.isArray(t.c3)) return null;
   let w = 0, b = 0; t.pg.forEach((p, g) => { if (t.c3[g] != null) { w += p; b += p * t.c3[g]; } });
   const base = h.t3s != null ? h.t3s : (w > 0 ? b / w : null); if (base == null || !(base > 0)) return null;
   const lg = p => { const q = Math.min(0.995, Math.max(0.005, p)); return Math.log(q / (1 - q)); }, sg = z => 1 / (1 + Math.exp(-z));
   const fa = h.fa != null ? h.fa : h.fuku, sh = fa != null ? lg(fa) - lg(base) : 0, NN = N || 2000;
   const c3 = t.c3.map((c, g) => { if (c == null) return null; const kk = t.pg[g] * NN; return sg(lg((c * kk + 40 * base) / (kk + 40)) + sh); });
-  return { pg: t.pg, c3, front: t.pg[0] + t.pg[1], fa };
+  const P_ = pc || t.pg;   // 直した組の割合（2026/11/3。3着内の寄せ方はシミュの回数なので元の割合）
+  return { pg: P_, c3, front: P_[0] + P_[1], fa };
 }
 function tkGainM(t) {   // 前に行ければ：逃げか先行の回の3着内が、ふだんより20ポイント以上高く、その位置になる割合も15%以上
   if (!t || t.fa == null) return null;
@@ -1735,8 +1758,9 @@ function tenkaiM(X, k) {
   const pc = p.pace || {}, P0 = v => v == null ? '-' : Math.round(v * 100) + '%', PJ = { S: 'スロー', M: 'ミドル', H: 'ハイ' };
   if (!hs.length && pc.S == null) return '';
   const top = ['S', 'M', 'H'].reduce((a, x) => (pc[x] || 0) > (pc[a] || 0) ? x : a, 'M');
-  const T = hs.map(h => ({ h, t: tkOfM(h, p.N) }));
-  const hana = hs.filter(h => h.hana != null).sort((a, b) => b.hana - a.hana).slice(0, 3);
+  const CM = tkCalM(p.horses || []), hv = h => CM.has(+h.no) ? CM.get(+h.no)[0] : h.hana;   // 直した割合（ハナも AI の材料と同じ直し）
+  const T = hs.map(h => ({ h, t: tkOfM(h, p.N, CM.get(+h.no)) }));
+  const hana = hs.filter(h => hv(h) != null).sort((a, b) => hv(b) - hv(a)).slice(0, 3);
   const fr = T.filter(x => x.t && x.t.front >= 0.6).sort((a, b) => b.t.front - a.t.front);
   const gn = T.map(x => ({ ...x, g: tkGainM(x.t) })).filter(x => x.g).sort((a, b) => b.g.d - a.g.d);
   const nm = h => `${esc(h.no)} ${esc(h.name || '')}`;
@@ -1745,7 +1769,7 @@ function tenkaiM(X, k) {
     (pc.S != null ? `<div><b>ペース</b> ${['S', 'M', 'H'].map(x => `${PJ[x]} ${x === top ? `<b>${P0(pc[x])}</b>` : P0(pc[x])}`).join('・')}</div>` +
       `<div class="pcbar">${['S', 'M', 'H'].map(x => `<i class="p${x}" style="width:${((pc[x] || 0) * 100).toFixed(1)}%"></i>`).join('')}</div>` : '') +
     (p.f3 && p.f3.lead != null ? `<div class="sub">前半3F（先頭）の見込み <b>${(+p.f3.lead).toFixed(1)}秒</b>（10〜90%：${p.f3.lo != null ? (+p.f3.lo).toFixed(1) : '-'}〜${p.f3.hi != null ? (+p.f3.hi).toFixed(1) : '-'}秒${p.f3.std != null ? `・このコースのふつう ${(+p.f3.std).toFixed(1)}秒` : ''}）</div>` : '') +
-    (hana.length ? `<div><b>ハナ</b> ${hana.map(h => `${nm(h)} <b>${P0(h.hana)}</b>`).join('・')}</div>` : '') +
+    (hana.length ? `<div><b>ハナ</b> ${hana.map(h => `${nm(h)} <b>${P0(hv(h))}</b>`).join('・')}</div>` : '') +
     (fr.length ? `<div><b>前に行けそう</b> ${fr.map(x => `${nm(x.h)} ${P0(x.t.front)}`).join('・')}</div>` : '') +
     (gn.length ? `<div><b>展開に恵まれそう</b> ${gn.map(x => `${nm(x.h)}（${TK_GM[x.g.g]}なら ${P0(x.g.c)}・ふだん ${P0(x.t.fa)}）`).join('・')}</div>` : '') +
     (!hana.length && !T.some(x => x.t) ? '<div class="sub">1角の位置の割合は、家のPCの新しい写し（アプリの再起動のあと）から出ます。</div>' : '') + '</div>';
@@ -1755,7 +1779,7 @@ function tenkaiM(X, k) {
   const tbl = rows ? `<div class="tw"><div class="scroll"><table class="st2 tkm"><tr><th>番手</th><th></th><th style="text-align:left">馬</th><th>1角の位置<br><small>逃げ・先行・中団・後方</small></th><th>上がり<br><small>予想</small></th></tr>${rows}</table></div></div>` : '';
   return `<div class="sh"><h2>展開の読み</h2><span>シミュ ${(+p.N || 2000).toLocaleString('ja-JP')}回</span></div>` + sum +
     (tbl ? fold('r.tkrows', '予想の隊列（1角の位置の順）', `${T.length}頭`, tbl, false) : '') +
-    '<p class="foot2">家のPCの展開シミュの見込みです（オッズは使いません）。前に行けそう＝逃げか先行になる割合が60%以上。展開に恵まれそう＝前に行ければ3着内がふだんより20ポイント以上上がり、その位置になる割合も15%以上。</p>';
+    '<p class="foot2">家のPCの展開シミュの見込みです（オッズは使いません）。1角の位置の割合とハナは、シミュの割合を過去の実際の1角に合わせて直した値です（並んだ馬は同じ順位）。前に行けそう＝逃げか先行になる割合が60%以上（確かめでは約7割が実際に前から4分の1以内）。展開に恵まれそう＝前に行ければ3着内がふだんより20ポイント以上上がり、その位置になる割合も15%以上。</p>';
 }
 // ---- パドックの写真：家のPCが写した GATEIN_data/view/paddock_img/日付/レースキー/馬番.jpg（幅480）。開いたときだけ読む ----
 function pkPhotoFoldM(X, k) {
