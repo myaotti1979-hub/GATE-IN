@@ -27,9 +27,9 @@ const PAYJP = [['tan', '単勝'], ['fuku', '複勝'], ['waku', '枠連'], ['umar
 const PK = { value: '狙い目 単勝', tan1: '◎の単勝', fuku1: '複勝◎', umaren: '馬連 流し', wide1: 'ワイド 1点', wideana: 'ワイド 穴流し', sanfuku: '3連複 軸1頭＋5頭', sanfuku6: '3連複 軸1頭＋6頭',
   box5: '3連複 5頭ボックス', box6: '3連複 6頭ボックス', jiku2: '3連複 2頭軸流し', jiku2s: '3連複 2頭軸 3点', box4: '3連複 4頭ボックス',
   _bought: '実際に買った馬券（自動投票）', _koro: '複勝転がし', _shobuW: '勝負レースW（記録）', _shobu: '勝負レース B（記録だけ）', _shobuC: '勝負レース C（記録だけ）',
-  cbY: '読みの買い目', cbD3: '組D3', cbK: 'D3核', cbE: '期待ワイド', abD: 'AI×D', abX: 'AI×D3', ai: 'AIの買い目' };
+  cbY: 'アプリ×AI', cbD3: '組D3', cbK: 'D3核', cbE: '期待ワイド', abD: 'AI×D', abX: 'AI×D3', ai: 'AIの買い目' };
 // プラン（家のPCの autobet.PLANS と同じ。各レースの締切の約1分40秒前に、そのときのオッズで買うか決める。新馬戦は買わない）（2026/10/24 スマホ版を合わせた）
-const PLANS = [{ set: 'planY', pk: 'cbY', title: '読みの買い目', rule: '能力＋シミュ＋Sonnet の読み（オッズは見送りと点数だけ）・自信70%以上・1日3R・1R 3,000円' },   // 2026/10/31 夜
+const PLANS = [{ set: 'planY', pk: 'cbY', title: 'アプリ×AI', rule: '能力＋シミュ＋Sonnet の読み（オッズは見送りと点数だけ）・自信70%以上・1日3R・1R 3,000円' },   // 2026/10/31 夜
   { set: 'planD3', pk: 'cbD3', title: '組D3', rule: '自信80%以上・1日3Rまで' },
   { set: 'planK', pk: 'cbK', title: 'D3核', rule: '自信70%以上・数の上限なし' },
   { set: 'planAiD', pk: 'abD', title: 'AI×D', rule: 'AIの読み・自信80%以上・1日3Rまで' },
@@ -374,7 +374,7 @@ const altFmt = v => (+v).toFixed(1);
 function altTkLines(tk) {
   const w = tk.filter(t => t.type === 'wide'), s3 = tk.filter(t => t.type === 'sanfuku'), out = [];
   if (w.length) { const ys = [...new Set(w.map(t => t.yen))]; out.push(`ワイド ${w.map(t => `${t.key}${t.odds ? `（${altFmt(t.odds)}倍）` : ''}${ys.length > 1 ? ` ${yen(t.yen)}` : ''}`).join('・')}${ys.length === 1 ? ` 各${yen(ys[0])}` : ''}`); }
-  for (const ty of ['umaren', 'umatan']) { const L = tk.filter(t => t.type === ty); if (!L.length) continue; const ys = [...new Set(L.map(t => t.yen))];   // 読みの買い目の馬連・馬単
+  for (const ty of ['umaren', 'umatan']) { const L = tk.filter(t => t.type === ty); if (!L.length) continue; const ys = [...new Set(L.map(t => t.yen))];   // アプリ×AIの馬連・馬単
     out.push(`${TJ[ty] || ty} ${L.map(t => `${t.key}${t.odds ? `（${altFmt(t.odds)}倍）` : ''}${ys.length > 1 ? ` ${yen(t.yen)}` : ''}`).join('・')}${ys.length === 1 ? ` 各${yen(ys[0])}` : ''}`); }
   if (s3.length) {
     const ys = [...new Set(s3.map(t => t.yen))], T = s3.map(t => t.key.split('-').map(Number)), ax = T[0].filter(h => T.every(t => t.includes(h))), each = ys.length === 1 ? ` 各${yen(ys[0])}` : '';
@@ -384,10 +384,10 @@ function altTkLines(tk) {
   { const L = tk.filter(t => t.type === 'santan'); if (L.length) { const ys = [...new Set(L.map(t => t.yen))]; out.push(`3連単 ${L.map(t => t.key + (ys.length > 1 ? ` ${yen(t.yen)}` : '')).join('・')}${ys.length === 1 ? ` 各${yen(ys[0])}` : ''}`); } }
   return out;
 }
-const ALT_CK = { 読みの買い目: 'Y', 組D3: 'D3', D3核: 'K', 'AI×D3': 'aiD3', 'AI×D': 'aiD' };
+const ALT_CK = { '読みの買い目': 'Y', 'アプリ×AI': 'Y', 組D3: 'D3', D3核: 'K', 'AI×D3': 'aiD3', 'AI×D': 'aiD' };
 function altFromCb(ck, c) {
   if (!c) return { why: '組み合わせを作れない', cost: 0, lines: [], out: '', at: '' };
-  if (ck === 'Y') {   // 読みの買い目（2026/10/31 夜）：買い目＝Y（線の下で見送ったときは同じ作り方の yInfo.alt）。外した組＝安すぎる・トータル100%を超えない
+  if (ck === 'Y') {   // アプリ×AI（2026/10/31 夜）：買い目＝Y（線の下で見送ったときは同じ作り方の yInfo.alt）。外した組＝安すぎる・トータル100%を超えない
     const yi = c.yInfo; if (!yi || yi.conf == null) return { why: c.yWhy || 'AI の読みがまだ', cost: 0, lines: [], out: '', at: '' };
     const od = t => +(((yi.cand || []).find(z => z && z.type === t.type && String(z.key) === String(t.key)) || {}).odds) || 0;
     const tk = ((c.Y && c.Y.length ? c.Y : yi.alt) || []).filter(t => t && t.key && +t.yen >= 100).map(t => ({ type: t.type, key: String(t.key), yen: Math.floor(+t.yen / 100) * 100, odds: od(t) }));
@@ -409,13 +409,13 @@ function altFromCb(ck, c) {
 }
 function altDecided(X, k, e) {   // 見送ったレースの「買うなら」（折りたたみ）
   const c = e && e.plan && e.plan.cb; if (!c || !(c.top || c.yInfo)) return '';
-  const nm = [...new Set([...String(e.reason || '').matchAll(/(?:^|・)(読みの買い目|組D3|D3核|AI×D3|AI×D)：/g)].map(m => m[1]))];
+  const nm = [...new Set([...String(e.reason || '').matchAll(/(?:^|・)(アプリ×AI|組D3|D3核|AI×D3|AI×D)：/g)].map(m => m[1]))];
   if (!nm.length) return '';
   const R = X.res[k], pay = R && R.payout && Object.keys(R.payout).length ? (t, key) => payOf(X, k, t, key) : null, done = !!pay;
   const body = `<div class="tk" style="border-top:0;margin-top:0">${nm.map(n => altRow(n, altFromCb(ALT_CK[n], c), pay)).join('')}</div><p class="sub" style="margin:6px 0 0">判断のときの予想とオッズ（自動投票の控え）で、${ALT_NOTE.replace('自動投票は買いません', '自動投票は買っていません')}</p>`;
   return fold('r.alt.' + k, '見送ったけれど買うなら', done ? '結果つき' : '判断のときの予想で', body);
 }
-const confTxt = x => x.confY != null ? `自信（能力＋シミュ）${P(x.confY)}${x.confYai ? '' : '（アプリの◎・読みの前）'}` : `自信 ${P(x.conf)}`;   // 読みの買い目（2026/10/31 夜）
+const confTxt = x => x.confY != null ? `自信（能力＋シミュ）${P(x.confY)}${x.confYai ? '' : '（アプリの◎・読みの前）'}` : `自信 ${P(x.conf)}`;   // アプリ×AI（2026/10/31 夜）
 function projCard(X, x) {   // 今日のタブ：買う見込みのレース
   const m = meta(X, x.k), on = x.plans.filter(q => q.st !== 'skip'), off = x.plans.filter(q => q.st === 'skip');
   return `<div class="tl"><div class="h"><div class="tm">${esc(x.at)}</div><div class="bds">${on.map(q => `<span class="bd ref">${esc(q.name)}${q.st === 'ai' ? ' AIしだい' : ''}</span>`).join('')}</div></div>` +
@@ -559,7 +559,7 @@ function renderToday() {
     if (plOn.length) h += `<div class="tl"><div class="h"><div class="tm">${nd ? hhmm(Math.floor(nd.at)) : ''}</div><div class="bds">${plOn.map(p => `<span class="bd ref">${esc(p.title)}</span>`).join('')}</div></div>` +
       `<div class="rn">${nd ? `次の判断：${rTitle(meta(X, nd.k))}<small>締切 ${hhmm(nd.close)}</small>` : '今日の判断はこれで終わりです'}</div>` +
       `<div class="sub">${pj ? `下は家のPCの見込みです（保存した最新の予想 ${esc(pj.saved || '—')} を、自動投票と同じ決め方に当てはめたもの・${esc(pj.at || '')} 計算）。締切の約1分40秒前に、そのときの予想とオッズで決め直します。新馬戦は買いません。` : `${esc(plOn.map(p => p.title).join('・'))} は、各レースの締切の約1分40秒前に、そのときのオッズで買うか決めます。前もって決まった予定はありません（新馬戦は買いません）。`}${offTxt(wOn, kOn)}</div></div>`;
-    if (plOn.length) h += yxLine(X, se, st);   // 読みの買い目の利益の範囲で追加（2026/11/2〜）
+    if (plOn.length) h += yxLine(X, se, st);   // アプリ×AIの利益の範囲で追加（2026/11/2〜）
     if (plOn.length && pj) {   // プランの買う見込み（家のPCの見込み）と、見送り見込み（たたむ）
       h += pbuy.length ? pbuy.map(x => projCard(X, x)).join('') : '<p class="empty">今の予想では、このあと買う見込みのレースはありません</p>';
       if (prest.length) h += fold('t.pjrest', `見送り見込みのレース ${prest.length}R`, '買うならの買い目つき', `<ul class="lst">${prest.map(x => { const ws = [...new Set(x.plans.map(q => q.why).filter(w => w && !/^自信 /.test(w)))];
@@ -824,13 +824,13 @@ function buyBoxes(X, k) {
   } else {   // プラン（組D3・D3核・AI×D・AI×D3）の判断（2026/10/24）
     const se = (S.status || {}).settings || {}, plOn = plansOn(se), c = X.cd[k] || {}, done = isDone(X.res[k]) || !!c.result;
     if (e && DEC_DONE.includes(e.status) && e.status !== '購入済み') {
-      const rs = String(e.reason || e.error || '').split(/・(?=(?:勝負レースW|読みの買い目|組D3|D3核|AI×D3|AI×D|期待ワイド|複勝転がし)：)/).filter(Boolean);
+      const rs = String(e.reason || e.error || '').split(/・(?=(?:勝負レースW|アプリ×AI|組D3|D3核|AI×D3|AI×D|期待ワイド|複勝転がし)：)/).filter(Boolean);
       h += `<div class="buy"><h3>このレースの判断：${esc(e.status)}<span class="bd wq">${esc(e.status)}</span></h3>${rs.length ? `<ul class="lst">${rs.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div>`;
       if (e.status === '見送り') h += altDecided(X, k, e);   // 見送ったけれど買うなら（2026/10/24 夜）
     } else if (X.d === todayStr() && !done && plOn.length) {
       const sh = /新馬|未出走/.test(String(c.name || meta(X, k).name || '')), px = projRow(X, k);
       const alts = px ? px.plans.filter(q => q.st === 'skip' && q.alt) : [];   // 見送り見込みでも買うなら（2026/10/24 夜。新馬戦も参考に）
-      const altH = alts.length ? fold('r.alt.' + k, '見送り見込みでも買うなら', esc(alts.map(q => q.name).join('・')), `<div class="tk" style="border-top:0;margin-top:0">${alts.map(q => altRow(q.name, q.alt)).join('')}</div><p class="sub" style="margin:6px 0 0">${ALT_NOTE}倍率は保存した予想（${esc(px.saved || '—')}）のときのもの。</p>`) : '';
+      const altH = alts.length ? fold('r.alt.' + k, '見送り見込みでも買うなら', esc(alts.map(q => q.name).join('・')), `<div class="tk" style="border-top:0;margin-top:0">${alts.map(q => altRow(q.name, q.alt)).join('')}</div><p class="sub" style="margin:6px 0 0">${ALT_NOTE}${px.oddsAt ? `倍率は家のPCが取った最新（${esc(px.oddsAt)}）のもの。` : `倍率は保存した予想（${esc(px.saved || '—')}）のときのもの。`}</p>`) : '';
       if (px && !px.sh && !sh)   // 家のPCの見込み（2026/10/24）
         h += `<div class="buy"><h3>自動投票の予定：${esc(px.lab)}<span class="bd ref">${confTxt(px)}</span></h3><div class="tk" style="border-top:0;margin-top:0">${px.plans.map(pjLine).join('')}</div>` +
           `<div class="sub" style="margin-top:6px">保存した予想（${esc(px.saved || '—')}）での家のPCの見込みです。締切の約1分40秒前（${esc(px.at)}ごろ）に、そのときの予想とオッズで決めます。${offTxt(wActive(X), kActive(X))}</div></div>` + altH;
@@ -1440,7 +1440,7 @@ function wShHtml(W, lab, day) {   // 勝負レースW「好調な日に伸ばし
 }
 // プランの反省会（2026/10/24 ユーザー「反省会の買い目分析はWだけじゃなくてD3や核D，AI×D3もしっかりしてください」）：家のPCの反省会（planrev.py）の数。
 //   決め方どおり＝その日の全部のレースに自動投票の決め方を当てはめた分（買わなかったプランも）・線のすぐ下／1日の数で外れ＝もし買っていたら（決め方は変えない）
-const PR_PL = [['Y', '読みの買い目'], ['D3', '組D3'], ['K', 'D3核'], ['AX', 'AI×D3'], ['AD', 'AI×D']];   // 読みの買い目：2026/10/31 夜
+const PR_PL = [['Y', 'アプリ×AI'], ['D3', '組D3'], ['K', 'D3核'], ['AX', 'AI×D3'], ['AD', 'AI×D']];   // アプリ×AI：2026/10/31 夜
 function planRevHtml(P, lab) {
   if (!P || !P.sum) return '';
   const c = s => s && s.n ? `${s.n}R ${s.hit}的中<br><b class="${cls(s.ret - s.cost)}">${s.cost ? Math.round(s.ret / s.cost * 100) : 0}%</b>` : '-';
@@ -1484,7 +1484,7 @@ function planRacesM(P) {
       const hits = (p.legs || []).filter(l => l.p).map(l => `${TJ[l.t] || l.t} ${l.k}`).join('・');
       const cutHit = (p.cut || []).filter(l => l.p).map(l => `${TJ[l.t] || l.t} ${l.k}`).join('・');
       return `<div>${nm} ${p.nth}R目${p.add ? `・<b>追加${p.add}</b><span class="sub">（その時の収支 ${sgn(+p.ypl || 0)}）</span>` : ''}${bt ? '（買った）' : '（記録だけ）'}：${yen(p.cost)}→<b class="${cls(p.ret - p.cost)}">${yen(p.ret)}</b>${hits ? `<span class="sub">（${esc(hits)}）</span>` : ''}${cutHit ? `<span class="sub">　線で外した当たり：${esc(cutHit)}</span>` : ''}</div>`; }).join('');
-    return `<div style="margin:6px 0"><b>${esc(r.post || '')} ${esc(r.name)}</b> <span class="sub">${r.confY != null ? `自信（読みの買い目）${Math.round(r.confY * 100)}%${r.conf != null ? `・旧 ${Math.round(r.conf * 100)}%` : ''}` : `自信 ${r.conf != null ? Math.round(r.conf * 100) : '-'}%（旧いプラン）`}・結果 ${(r.res || []).join('-')}${r.ai ? '' : '・AI 間に合わず'}${r.done === false ? '・直前のオッズ×' : ''}</span>${ps}</div>`; }).join('') + '</div>' + yw;
+    return `<div style="margin:6px 0"><b>${esc(r.post || '')} ${esc(r.name)}</b> <span class="sub">${r.confY != null ? `自信（アプリ×AI）${Math.round(r.confY * 100)}%${r.conf != null ? `・旧 ${Math.round(r.conf * 100)}%` : ''}` : `自信 ${r.conf != null ? Math.round(r.conf * 100) : '-'}%（旧いプラン）`}・結果 ${(r.res || []).join('-')}${r.ai ? '' : '・AI 間に合わず'}${r.done === false ? '・直前のオッズ×' : ''}</span>${ps}</div>`; }).join('') + '</div>' + yw;
 }
 // 読みの反省会（2026/10/31 夜）：オッズなしの読み（アプリ＝能力＋シミュ・能力・シミュ・Sonnet）と人気（市場の基準）。家のPCの反省会（yomirev.py）の数
 const YR_M = [['app', 'アプリ（能力＋シミュ）'], ['ml', '能力'], ['sim', 'シミュ'], ['ai', 'Sonnet'], ['pop', '人気（基準）'], ['appV', 'オッズ込み（参考）']];
@@ -1565,13 +1565,13 @@ function honFin(X, k) {
   const i = order.indexOf(+p.horses[0].no), f = i >= 0 ? i + 1 : 0;
   return `<small class="fin${f && f <= 3 ? ' in3' : ''}">◎${f ? f + '着' : '着外'}</small>`;
 }
-// 読みの買い目の「利益の範囲で追加」（2026/11/2〜）：家のPCの自動投票の今日の数（status.json の state.yx）
+// アプリ×AIの「利益の範囲で追加」（2026/11/2〜）：家のPCの自動投票の今日の数（status.json の state.yx）
 function yxLine(X, se, st) {
   const y = st && st.state && st.state.yx;
   if (!y || String(y.date || '') !== X.d || !(se && se.planY)) return '';
   const pend = (y.pend || []).length;
-  return `<div class="yx"><b>利益の範囲で追加</b>：読みの買い目の今日の収支 <b class="${cls(+y.pl || 0)}">${sgn(+y.pl || 0)}</b>（払戻が出た分）・基本 ${y.nBase || 0}R・追加 ${y.nAdd || 0}R。` +
-    (pend ? `前の追加（${esc(y.pend.join('・'))}）の結果が出るまで、次の追加はしません。` : `次の追加は今日の収支が ${sgn(+y.next || 0)} 以上のとき（自信${P(y.th)}以上のレースを1R）。`) + '</div>';
+  return `<div class="yx"><b>利益の範囲で追加</b>：アプリ×AIの今日の収支 <b class="${cls(+y.pl || 0)}">${sgn(+y.pl || 0)}</b>（払戻が出た分）・基本 ${y.nBase || 0}R・追加 ${y.nAdd || 0}R。` +
+    (pend ? `前の追加（${esc(y.pend.join('・'))}）の結果が出るまで、次の追加はしません。` : `次の追加は${(+y.nBase || 0) < 3 ? '、基本の3Rを買い終えてから（自信70%以上が3Rない日は、その日の基本の候補が終わってから）、' : ''}今日の収支が ${sgn(+y.next || 0)} 以上のとき（自信${P(y.th)}以上のレースを1R）。`) + '</div>';
 }
 // 読みの反省会：展開の答え合わせ（シミュ）。家のPCの読みの反省会と同じ数
 function yomiTenM(T) {
@@ -1613,14 +1613,14 @@ function wxBlockM(r, rec) {
 }
 // 昔の記録（今は買っていない作り方の答え合わせ）はたたむ（PC の反省会と同じ）
 function oldRecM(h) { return h ? fold('rv.old', '昔の記録', '', h, false, '勝負レースW の「好調な日に伸ばしていたら」など、今は買っていない作り方') : ''; }
-// 読みの買い目で買わなかったレース：理由ごとに、もし買っていたら（外れも全部。家のPCの反省会と同じ数え方）
+// アプリ×AIで買わなかったレース：理由ごとに、もし買っていたら（外れも全部。家のPCの反省会と同じ数え方）
 function yWouldM(rows) {
   const g = {};
   for (const r of rows || []) { const p = (r.plans || {}).Y; if (!p || p.why == null) continue;
     const L = (p.legs || []).length ? p.legs : (p.alt || []), c = L.reduce((a, l) => a + (+l.y || 0), 0), t = L.reduce((a, l) => a + (+l.r || 0), 0); if (!c) continue;
     const x = g[p.why] || (g[p.why] = { n: 0, hit: 0, cost: 0, ret: 0 }); x.n++; x.cost += c; x.ret += t; x.hit += t > 0 ? 1 : 0; }
   const L = Object.entries(g); if (!L.length) return '';
-  return `<div class="tw tbox"><b>読みの買い目で買わなかったレース（もし買っていたら・外れも全部）</b>` +
+  return `<div class="tw tbox"><b>アプリ×AIで買わなかったレース（もし買っていたら・外れも全部）</b>` +
     L.map(([w, x]) => `<div class="sub">${esc(w)}：${x.n}R・${x.hit}的中 ${yen(x.cost)}→<b class="${cls(x.ret - x.cost)}">${yen(x.ret)}</b>（${x.cost ? Math.round(x.ret / x.cost * 100) : 0}%）</div>`).join('') + '</div>';
 }
 // 反省会の目次（起動のときに先に呼ばれても困らないように、上は var と function だけ）（PC と同じ。押すとその見出しへ。たたんだ所は開く）
@@ -1709,7 +1709,7 @@ function aiBoxM(X, k) {
   return `<div class="aib"><div class="aih"><b>AIの総合予想</b>${cf}<small>${esc(lab)}${at ? '・' + esc(at) : ''}${r.oddsFree ? '・オッズなし' : ''}</small></div>` +
     `<div class="aims">${marks || '<span class="sub">印なし</span>'}</div>${cfd}${p.summary ? `<div class="ais">${esc(aiCutM(p.summary))}</div>` : ''}` +
     (more ? fold('r.aimore', 'くわしく', '', more, false, '展開の見立て・危ない馬・なぜこの予想か') : '') +
-    '<div class="foot2">自信 n/10 は Sonnet が自分で見積もった◎の3着内です。自動投票の「読みの買い目」の自信（能力＋シミュ）とは別の数です。</div></div>';
+    '<div class="foot2">自信 n/10 は Sonnet が自分で見積もった◎の3着内です。自動投票の「アプリ×AI」の自信（能力＋シミュ）とは別の数です。</div></div>';
 }
 // ---- 展開の読み（家のPCのシミュ。PC の展開のタブと同じ数：1角の位置の組の割合とその組の3着内・前に行ければ） ----
 var TK_GM = ['逃げ', '先行', '中団', '後方'];
